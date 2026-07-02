@@ -48,6 +48,7 @@ local NAME_SHARD_BASE=METADATA_CDN..'/index/cards/names-by-name/shards/'
 local SET_COL_SHARD_BASE=METADATA_CDN..'/index/cards/set-collector/shards/'
 local ORACLE_ID_SHARD_BASE=METADATA_CDN..'/index/cards/oracle-ids/shards/'
 local PRINTINGS_ORACLE_SHARD_BASE=METADATA_CDN..'/index/cards/printings-by-oracle/shards/'
+local UUID_FORMAT='%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x'
 local ALT_ART_PREVIEW_PAGE_SIZE=24
 local ALT_ART_PREVIEW_NAV_TAG='AltArtPreviewNav'
 local ALT_ART_NAV_PREV_URL=METADATA_CDN..'/ui/left-65-64.png'
@@ -531,15 +532,15 @@ end
 
 function isUuid(s)
   if not s or s == '' then return false end
-  return s:match('^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$') ~= nil
+  return s:match('^'..UUID_FORMAT..'$') ~= nil
 end
 
 function uuidFromCdnUrl(url)
   if not url or url == '' then return nil end
   url = cleanImageUrl(url)
-  return url:match('(%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x)%.[a-zA-Z0-9]+')
-    or url:match('/(%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x)/')
-    or url:match('(%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x)')
+  return url:match('('..UUID_FORMAT..')%.[a-zA-Z0-9]+')
+    or url:match('/('..UUID_FORMAT..')/')
+    or url:match('('..UUID_FORMAT..')')
 end
 
 function faceUrlFromJson(json)
@@ -877,7 +878,7 @@ function resolveQueryUuidAsync(rawName, callback)
     return
   end
 
-  local uuid = name:match('(%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x)')
+  local uuid = name:match('('..UUID_FORMAT..')')
   if uuid then callback(uuid) return end
 
   local qty, rest = name:match('^(%d+)%s+(.+)$')
@@ -923,7 +924,7 @@ function resolveQueryUuidAsync(rawName, callback)
 end
 
 function resolveDeckLine(rest, callback)
-  local uuid = rest:match('(%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x)')
+  local uuid = rest:match('('..UUID_FORMAT..')')
   if uuid then
     callback(uuid, rest:gsub(uuid, ''):gsub('^%s+', ''))
     return
@@ -1325,7 +1326,7 @@ function spawnFromCdnQuery(qTbl)
   end
 
   local rawName = decodeQueryName(qTbl.name or ''):gsub('^%s+', ''):gsub('%s+$', '')
-  local inlineUuid = rawName:match('(%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x)')
+  local inlineUuid = rawName:match('('..UUID_FORMAT..')')
   if inlineUuid then spawnUuid(inlineUuid) return end
 
   loadIndexManifest(function()
@@ -1767,7 +1768,7 @@ function finishTokenLookup(qTbl, parentUuid, parentOracleId, fromHover, expectsT
         return
       end
 
-      tokenUuid = tokenName:match('(%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x)')
+      tokenUuid = tokenName:match('('..UUID_FORMAT..')')
       if tokenUuid then
         markSettled()
         spawnTokenDeck(qTbl, { { uuid = tokenUuid, record = tokenRecordFromEntry({ uuid = tokenUuid, name = 'Token' }) } })
