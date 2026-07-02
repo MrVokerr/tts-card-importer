@@ -1,0 +1,18 @@
+{
+  "name": "tts-card-metadata",
+  "version": "1.0.0",
+  "description": "Build and mirror tooling for TTS Card Importer R2 metadata CDN",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build-index.js",
+    "build:fetch": "node scripts/build-index.js --fetch",
+    "build:full": "node scripts/build-index.js --mode=full --fetch",
+    "build:tokens": "node scripts/build-token-index.js",
+    "build:all": "npm run build:fetch && npm run build:tokens",
+    "verify": "node scripts/verify.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

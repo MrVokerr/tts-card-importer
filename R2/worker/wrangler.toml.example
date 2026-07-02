@@ -1,0 +1,12 @@
+# Copy to wrangler.toml and fill in your bucket name.
+name = "tts-card-metadata"
+main = "worker/src/index.js"
+compatibility_date = "2024-01-01"
+
+[[r2_buckets]]
+binding = "METADATA_BUCKET"
+bucket_name = "your-metadata-bucket"
+
+[vars]
+PUBLIC_BASE_URL = "https://your-bucket.example.com"
+MERGE_SCRYFALL = "false"

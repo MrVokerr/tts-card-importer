@@ -1,0 +1,13 @@
+{
+  "77c6fa74-5543-42ac-9ead-0e890b188e99": {
+    "name": "Lightning Bolt",
+    "set": "clu",
+    "collectorNumber": "141",
+    "oracle_id": "4457ed35-7c10-48c8-9776-456485fdf070",
+    "type_line": "Instant",
+    "cmc": 1,
+    "lang": "en",
+    "layout": "normal",
+    "oracle_text": "Lightning Bolt deals 3 damage to any target."
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/MrVokerr/tts-card-importer/r2/card-record",
+  "title": "CardRecord",
+  "type": "object",
+  "required": ["name", "oracle_id", "type_line", "cmc", "layout", "lang"],
+  "properties": {
+    "name": { "type": "string" },
+    "set": { "type": "string" },
+    "collectorNumber": { "type": "string" },
+    "oracle_id": { "type": "string", "format": "uuid" },
+    "type_line": { "type": "string" },
+    "cmc": { "type": "number" },
+    "lang": { "type": "string" },
+    "layout": { "type": "string" },
+    "oracle_text": { "type": "string" },
+    "power": { "type": "string" },
+    "toughness": { "type": "string" },
+    "loyalty": { "type": "string" },
+    "imageCdn": { "type": "string", "format": "uri" },
+    "relatedTokens": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["uuid"],
+        "properties": {
+          "uuid": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "type_line": { "type": "string" },
+          "power": { "type": "string" },
+          "toughness": { "type": "string" },
+          "imageCdn": { "type": "string" }
+        }
+      }
+    },
+    "card_faces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "type_line": { "type": "string" },
+          "oracle_text": { "type": "string" },
+          "cmc": { "type": "number" },
+          "power": { "type": "string" },
+          "toughness": { "type": "string" },
+          "loyalty": { "type": "string" },
+          "image_uuid": { "type": "string", "format": "uuid" }
+        }
+      }
+    },
+    "rarity": { "type": "string" },
+    "prices": { "type": "object" },
+    "legalities": { "type": "object" },
+    "game_changer": { "type": "boolean" },
+    "reserved": { "type": "boolean" },
+    "finishes": { "type": "array", "items": { "type": "string" } },
+    "color_identity": { "type": "array", "items": { "type": "string" } },
+    "keywords": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": true
+}

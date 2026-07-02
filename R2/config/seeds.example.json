@@ -1,0 +1,15 @@
+{
+  "cardNames": [
+    "Lightning Bolt",
+    "Sol Ring",
+    "Counterspell",
+    "Llanowar Elves",
+    "Dark Ritual",
+    "Swords to Plowshares",
+    "Brainstorm",
+    "Path to Exile",
+    "Wrath of God",
+    "Cultivate"
+  ],
+  "includeSets": ["mh3", "blb", "dsk", "fdn"]
+}

@@ -40,6 +40,17 @@ Type in global chat. `!Importer` and `Importer` both work.
 
 Everything resolves from these at runtime. No Scryfall API calls during import.
 
+### Metadata CDN / self-hosting
+
+The importer reads static JSON shards from an R2-compatible host. To **mirror**, **rebuild**, or build an **advanced metadata API**, see the [`R2/`](R2/) package:
+
+- [R2/README.md](R2/README.md) — overview and build commands
+- [R2/METADATA.md](R2/METADATA.md) — full URL and shard contract
+- [R2/MIRROR.md](R2/MIRROR.md) — clone or host your own bucket
+- [R2/ADVANCED.md](R2/ADVANCED.md) — extend records or add a REST Worker
+
+Change `METADATA_CDN` at the top of `Card Importer.lua` to point at your mirror.
+
 ---
 
 ## Commands

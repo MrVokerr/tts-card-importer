@@ -1,6 +1,7 @@
 -- Original by: Amuzet. Adapted by: Vokerr.
 -- Card images: https://img.klrmngr.com (Kai CDN)
 -- Metadata:   https://pub-6c935b50ab2c43f291df08b7f566585b.r2.dev (Vokerr public index)
+-- Mirror hosts: see R2/METADATA.md and R2/MIRROR.md (set METADATA_CDN below).
 -- CDN-only at runtime — no Scryfall API.
 mod_name,version='Card Importer','6.0'
 self.setName('[854FD9]'..mod_name..' [49D54F]'..version)
