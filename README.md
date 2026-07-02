@@ -2,7 +2,7 @@
 
 A Tabletop Simulator object script for spawning Magic: The Gathering cards and importing decks.
 
-**Original by Amuzet · Adapted by Vokerr · v6.0**
+**Original by Amuzet · Adapted by Vokerr**
 
 ---
 
