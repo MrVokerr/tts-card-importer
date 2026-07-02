@@ -1,6 +1,6 @@
 # Card Importer
 
-A Tabletop Simulator object script for spawning Magic: The Gathering cards and importing decks. Original by **Amuzet**; adapted by **Vokerr** (v6.0).
+A Tabletop Simulator object script for spawning Magic: The Gathering cards and importing decks. Original by **Amuzet**; adapted by **Vokerr**.
 
 ## Features
 
