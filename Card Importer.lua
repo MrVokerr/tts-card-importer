@@ -4,10 +4,6 @@
 -- CDN-only at runtime — no Scryfall API.
 mod_name,version='Card Importer','6.0'
 self.setName('[854FD9]'..mod_name..' [49D54F]'..version)
---[[Classes]]
-local TBL={__call=function(t,k)if k then return t[k] end return t.___ end,__index=function(t,k)if type(t.___)=='table'then rawset(t,k,t.___())else rawset(t,k,t.___)end return t[k] end}
-function TBL.new(d,t)if t then t.___=d return setmetatable(t,TBL)else return setmetatable(d,TBL)end end
-
 textItems={}
 newText=setmetatable({
   type='3DText',
@@ -91,7 +87,6 @@ local printingsOracleShardCache={}
 local printingsOracleShardLoading={}
 local printingsOracleShardWaiters={}
 local tokenDefaultsByName=nil
-local tokenDefaultsMeta=nil
 local tokenDefaultsLoading=false
 local tokenDefaultsWaiters={}
 local tokenParentShardCache={}
@@ -215,14 +210,6 @@ function relatedTokensFromParentNameEntry(entry)
     end
   end
   return #out > 0 and out or nil
-end
-
-function relatedTokensFromParentName(cardName, parentMap)
-  if not cardName or cardName == '' then return nil end
-  if parentMap then
-    return relatedTokensFromParentNameEntry(parentMap[normalizeIndexName(cardName)])
-  end
-  return nil
 end
 
 function faceUuidFromTarget(target)
@@ -707,15 +694,6 @@ function fetchCardRecordByUuid(uuid, callback, fast)
   end, fast)
 end
 
-function resolveIdentityFromIndexName(name, callback)
-  lookupUuidByName(name, function(id)
-    if not id then callback(nil, nil) return end
-    fetchCardRecordByUuid(id, function(rec)
-      callback(id, rec and rec.oracle_id or nil)
-    end)
-  end)
-end
-
 function enrichParentOracleId(parentUuid, parentOracleId, callback, fast)
   if parentOracleId and parentOracleId ~= '' and isUuid(parentOracleId) then
     callback(parentOracleId)
@@ -734,13 +712,6 @@ function cardNameFromTarget(target)
   return first and first:gsub('%s+$', '') or nil
 end
 
-function resolveParentIdentity(target, callback, qTbl)
-  if not target then callback(nil, nil) return end
-  resolveOracleIdFromIdentity(target, qTbl, function(oracleId, uuid, _)
-    callback(uuid, oracleId)
-  end)
-end
-
 function fetchRelatedTokensByOracleId(oracleId, callback, fast)
   fetchRelatedTokens(nil, oracleId, callback, fast)
 end
@@ -756,7 +727,6 @@ function loadTokenDefaults(callback)
     if not wr.is_error and wr.text and wr.text ~= '' then
       parsed = safeJSON(wr.text)
     end
-    tokenDefaultsMeta = parsed or {}
     tokenDefaultsByName = (parsed and parsed.byName) or {}
     tokenR2ImageCdn = (parsed and parsed.r2ImageCdn) or R2_IMAGE_CDN
     tokenR2Fallbacks = {}
@@ -949,15 +919,6 @@ function resolveQueryUuidAsync(rawName, callback)
   end
 
   lookupUuidByName(name, callback)
-end
-
-function resolveCardQueryAsync(rawName, callback)
-  resolveQueryUuidAsync(rawName, function(uuid)
-    if not uuid then callback(nil, nil) return end
-    fetchCardRecordByUuid(uuid, function(record)
-      callback(record, uuid)
-    end)
-  end)
 end
 
 function resolveDeckLine(rest, callback)
@@ -1212,19 +1173,6 @@ function ReImport(tar, ply, alt)
     position = tar.getPosition() + tar.getTransformForward():scale(-3.2) + Vector(0, 0.025, 0),
     full = 'Reimporting Card',
   })
-end
-
-function spawnPosition(qTbl)
-  if qTbl.target then
-    return qTbl.target.positionToWorld({-2.5, 0.5, 0}), qTbl.target.getRotation()
-  end
-  local rawPos = qTbl.position or self.getPosition()
-  if type(rawPos) == 'table' and not rawPos.x then
-    rawPos = Vector(rawPos[1] or 0, rawPos[2] or 0, rawPos[3] or 0)
-  end
-  local yRot = 0
-  if Player[qTbl.color] then yRot = Player[qTbl.color].getPointerRotation() end
-  return rawPos + Vector(2, 0.5, 0), Vector(0, yRot, 0)
 end
 
 function spawnDeckEntries(entries, qTbl, opts)
@@ -1623,11 +1571,6 @@ function resolveTokenUuidByName(name, defaults, opts)
   return nil, nil
 end
 
-function oracleMentionsToken(text)
-  if not text or text == '' then return false end
-  return text:lower():find('token') ~= nil
-end
-
 function oracleCreatesTokens(text)
   if not text or text == '' then return false end
   local lower = text:lower()
@@ -1666,10 +1609,6 @@ function oracleExpectsRelatedParts(text)
   return oracleCreatesTokens(text) or oracleCreatesEmblem(text)
 end
 
-function oracleNeedsShardLookup(text)
-  return oracleCreatesTokens(text)
-end
-
 function relatedTokensFromCardRecord(rec)
   if not rec or not rec.relatedTokens or #rec.relatedTokens == 0 then return nil end
   local out = {}
@@ -1679,121 +1618,6 @@ function relatedTokensFromCardRecord(rec)
     end
   end
   return #out > 0 and out or nil
-end
-
-function tryRelatedTokensFromCardRecord(uuid, callback)
-  if not uuid or uuid == '' then callback(nil) return end
-  fetchCardRecordByUuid(uuid, function(rec)
-    callback(relatedTokensFromCardRecord(rec))
-  end)
-end
-
-function tryRelatedTokensByName(qTbl, parentUuid, parentOracleId, callback)
-  local cardName = qTbl.target and cardNameFromTarget(qTbl.target)
-  if not cardName or cardName == '' then
-    callback(nil)
-    return
-  end
-  resolveIdentityFromIndexName(cardName, function(idxUuid, idxOracle)
-    fetchRelatedTokens(idxUuid or parentUuid, idxOracle or parentOracleId, callback)
-  end)
-end
-
--- Lightweight token resolution: embedded data → small CDN shards only (no multi-MB JSON).
-function resolveAccurateRelatedTokens(qTbl, parentUuid, parentOracleId, callback, opts)
-  opts = opts or {}
-  local allowHeavy = opts.allowHeavy == true
-
-  local memoRelated = qTbl.target and relatedTokensFromMemo(qTbl.target.memo)
-  if memoRelated and #memoRelated > 0 then
-    callback(memoRelated)
-    return
-  end
-
-  local descRelated = qTbl.target and relatedTokensFromDescription(qTbl.target.getDescription() or '')
-  if descRelated and #descRelated > 0 then
-    callback(descRelated)
-    return
-  end
-
-  local uuid = parentUuid
-  local oracleId = parentOracleId
-  if qTbl.target and (not uuid or uuid == '') then
-    uuid = faceUuidFromTarget(qTbl.target)
-  end
-  if qTbl.target and (not oracleId or oracleId == '') then
-    local _, oid = parentIdsFromTarget(qTbl.target, qTbl)
-    oracleId = oid
-  end
-
-  local function afterShardMiss(oid, uid)
-    if oid and isUuid(oid) then
-      fetchRelatedTokensByOracleId(oid, function(oracleRelated)
-        if oracleRelated and #oracleRelated > 0 then
-          callback(oracleRelated)
-          return
-        end
-        if allowHeavy and qTbl.target then
-          resolveOracleIdFromIdentity(qTbl.target, qTbl, function(heavyOid, _, _)
-            if heavyOid and heavyOid ~= oid then
-              fetchRelatedTokensByOracleId(heavyOid, callback)
-            else
-              callback(nil)
-            end
-          end)
-        else
-          callback(nil)
-        end
-      end)
-      return
-    end
-    if allowHeavy and qTbl.target then
-      resolveOracleIdFromIdentity(qTbl.target, qTbl, function(heavyOid, _, _)
-        if heavyOid and isUuid(heavyOid) then
-          fetchRelatedTokensByOracleId(heavyOid, callback)
-        else
-          callback(nil)
-        end
-      end)
-      return
-    end
-    callback(nil)
-  end
-
-  if uuid and uuid ~= '' then
-    fetchRelatedTokens(uuid, oracleId, function(related)
-      if related and #related > 0 then
-        callback(related)
-        return
-      end
-      if oracleId and isUuid(oracleId) then
-        afterShardMiss(oracleId, uuid)
-        return
-      end
-      fetchCardRecordByUuid(uuid, function(rec)
-        afterShardMiss(rec and rec.oracle_id, uuid)
-      end)
-    end)
-    return
-  end
-
-  if oracleId and isUuid(oracleId) then
-    afterShardMiss(oracleId, nil)
-    return
-  end
-
-  if allowHeavy and qTbl.target then
-    resolveOracleIdFromIdentity(qTbl.target, qTbl, function(oid, _, _)
-      if oid and isUuid(oid) then
-        fetchRelatedTokensByOracleId(oid, callback)
-      else
-        callback(nil)
-      end
-    end)
-    return
-  end
-
-  callback(nil)
 end
 
 function parseTokenNamesFromOracle(text)
