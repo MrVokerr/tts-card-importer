@@ -3,7 +3,7 @@
 -- Metadata:   https://pub-6c935b50ab2c43f291df08b7f566585b.r2.dev (Vokerr public index)
 -- Mirror hosts: see R2/METADATA.md and R2/MIRROR.md (set METADATA_CDN below).
 -- CDN-only at runtime — no Scryfall API.
-mod_name,version='Card Importer','6.0'
+mod_name,version='Card Importer','6.1'
 self.setName('[854FD9]'..mod_name..' [49D54F]'..version)
 textItems={}
 newText=setmetatable({
@@ -1572,13 +1572,21 @@ function resolveTokenUuidByName(name, defaults, opts)
   return nil, nil
 end
 
-function oracleCreatesTokens(text)
-  if not text or text == '' then return false end
-  local lower = text:lower()
-  if lower:find('would create one or more tokens') then return false end
-  if lower:find('twice that many of those tokens') then return false end
-  if lower:find('twice as many') and lower:find('token') then return false end
-  if lower:find('three times that many') and lower:find('token') then return false end
+function isTokenReplacementSentence(sentence)
+  if not sentence or sentence == '' then return false end
+  local lower = sentence:lower()
+  if lower:find('would create one or more tokens') then return true end
+  if lower:find('one or more tokens would be created') then return true end
+  if lower:find('twice that many of those tokens') then return true end
+  if lower:find('twice as many') and lower:find('token') then return true end
+  if lower:find('three times that many') and lower:find('token') then return true end
+  return false
+end
+
+function sentenceCreatesTokens(sentence)
+  if not sentence or sentence == '' then return false end
+  if isTokenReplacementSentence(sentence) then return false end
+  local lower = sentence:lower()
   if lower:find('nontoken') then return false end
   if lower:find('untapped tokens') and not lower:find('create') then return false end
   if lower:find('tokens you control') and not lower:find('create') then return false end
@@ -1594,6 +1602,14 @@ function oracleCreatesTokens(text)
   if lower:find('create a clue') or lower:find('create a blood') then return true end
   if lower:find('create') and lower:find('food token') then return true end
   if lower:find('create') and lower:find('treasure token') then return true end
+  return false
+end
+
+function oracleCreatesTokens(text)
+  if not text or text == '' then return false end
+  for sentence in (text..'.'):gmatch('[^%.!?\n]+') do
+    if sentenceCreatesTokens(sentence) then return true end
+  end
   return false
 end
 
@@ -1792,11 +1808,23 @@ function broadcastNoTokensForCard(qTbl)
   if not qTbl.standalone then endLoop() end
 end
 
+function targetHasCdnIdentity(target)
+  if not target then return false end
+  if oracleIdFromMemo(target.memo) or oracleIdFromTags(target) then return true end
+  local footerOid = parseMtgFooter(target.getDescription() or '')
+  if footerOid then return true end
+  if faceUuidFromTarget(target) then return true end
+  return false
+end
+
 function cardLikelyCreatesTokens(target)
   if not target then return false end
   if targetHasEmbeddedTokens(target) then return true end
   local desc = target.getDescription() or ''
   if oracleExpectsRelatedParts(desc) then return true end
+  -- Deck-imported / CDN cards: resolve via metadata shards even when oracle heuristics
+  -- reject doubling effects (e.g. Elspeth, Storm Slayer) before embed backfill exists.
+  if targetHasCdnIdentity(target) then return true end
   return false
 end
 
