@@ -3,7 +3,7 @@
 -- Metadata:   https://pub-6c935b50ab2c43f291df08b7f566585b.r2.dev (Vokerr public index)
 -- Mirror hosts: see R2/METADATA.md and R2/MIRROR.md (set METADATA_CDN below).
 -- CDN-only at runtime — no Scryfall API.
-mod_name,version='Card Importer','6.1'
+mod_name,version='Card Importer','6.2'
 self.setName('[854FD9]'..mod_name..' [49D54F]'..version)
 textItems={}
 newText=setmetatable({
@@ -1373,22 +1373,89 @@ function collectTokenEntries(related, parentUuid)
   return tokens
 end
 
+function hydrateTokenEntries(tokens, callback)
+  local uuids = {}
+  for _, tok in ipairs(tokens) do
+    if tok.uuid then table.insert(uuids, tok.uuid) end
+  end
+  ensureCardRecords(uuids, function()
+    for _, tok in ipairs(tokens) do
+      local cached = getCachedRecord(tok.uuid)
+      if cached then
+        local nameFallback = tok.record and tok.record.name
+        tok.record = cached
+        if (not tok.record.name or tok.record.name == '') and nameFallback then
+          tok.record.name = nameFallback
+        end
+      end
+    end
+    callback(tokens)
+  end)
+end
+
+function tokenRecordIsDfc(record)
+  if not record then return false end
+  if record.card_faces and #record.card_faces >= 2 then return true end
+  if record.layout == 'double_faced_token' then return true end
+  local tl = record.type_line or ''
+  if tl:find(' // ') then return true end
+  local name = record.name or ''
+  if name:find(' // ') then return true end
+  return false
+end
+
+function tokenFaceNickname(face, cmc, dfcSuffix)
+  local name = (face.name or 'Token'):gsub('"', '')
+  local typeLine = face.type_line or 'Token'
+  local suffix = dfcSuffix and ('CMC '..dfcSuffix) or 'CMC'
+  return name..'\n'..typeLine..'\n'..(cmc or 0)..suffix
+end
+
 function buildTokenCardDat(n, uuid, record, back)
-  local faceUrl = faceUrlFromUuid(uuid, record.imageCdn)
+  record = record or { name = 'Token', type_line = 'Token', cmc = 0 }
   local cmc = record.cmc or 0
-  local nickname = record.name:gsub('"', '')..'\n'..(record.type_line or 'Token')..'\n'..cmc..'CMC'
-  local oracle = setOracle({
-    oracle_text = record.oracle_text or '',
-    power = record.power,
-    toughness = record.toughness,
-    loyalty = record.loyalty,
-  })
-  return {
+  local memo = record.oracle_id or ''
+  local isDfc = tokenRecordIsDfc(record)
+  local frontFace = (record.card_faces and record.card_faces[1]) or nil
+  local backFace = (record.card_faces and record.card_faces[2]) or nil
+
+  local faceUrl
+  local nickname
+  local oracle
+  if isDfc then
+    local frontUuid = (frontFace and frontFace.image_uuid) or uuid
+    faceUrl = cdnImageFromUuid(frontUuid, 'front')
+    if frontFace then
+      nickname = tokenFaceNickname(frontFace, frontFace.cmc or cmc)
+      oracle = setOracle(frontFace)
+    else
+      local frontName = (record.name or 'Token'):match('^(.-)%s*//') or record.name or 'Token'
+      local frontType = (record.type_line or 'Token'):match('^(.-)%s*//') or record.type_line or 'Token'
+      nickname = frontName:gsub('"', '')..'\n'..frontType..'\n'..cmc..'CMC'
+      oracle = setOracle({
+        oracle_text = record.oracle_text or '',
+        power = record.power,
+        toughness = record.toughness,
+        loyalty = record.loyalty,
+      })
+    end
+  else
+    faceUrl = faceUrlFromUuid(uuid, record.imageCdn)
+    nickname = (record.name or 'Token'):gsub('"', '')..'\n'..(record.type_line or 'Token')..'\n'..cmc..'CMC'
+    oracle = setOracle({
+      oracle_text = record.oracle_text or '',
+      power = record.power,
+      toughness = record.toughness,
+      loyalty = record.loyalty,
+    })
+  end
+
+  local cardDat = {
     Transform = {posX=0, posY=0, posZ=0, rotX=0, rotY=0, rotZ=0, scaleX=1, scaleY=1, scaleZ=1},
     Name = 'Card',
     Nickname = nickname,
     Description = oracle,
-    Memo = record.oracle_id or '',
+    Memo = memo,
     CardID = n * 100,
     CustomDeck = {[tostring(n)] = {
       FaceURL = faceUrl,
@@ -1400,6 +1467,46 @@ function buildTokenCardDat(n, uuid, record, back)
       UniqueBack = false,
     }},
   }
+
+  if isDfc then
+    local backUuid = (backFace and backFace.image_uuid) or uuid
+    local backAddress = cdnImageFromUuid(backUuid, 'back')
+    local backNick
+    local backOracle
+    if backFace then
+      backNick = tokenFaceNickname(backFace, backFace.cmc or cmc, 'DFC')
+      backOracle = setOracle(backFace)
+    else
+      local backName = (record.name or 'Token'):match('//%s*(.+)$') or 'Token'
+      local backType = (record.type_line or 'Token'):match('//%s*(.+)$') or 'Token'
+      backNick = backName:gsub('"', '')..'\n'..backType..'\n'..cmc..'CMC DFC'
+      backOracle = setOracle({
+        oracle_text = '',
+        power = record.power,
+        toughness = record.toughness,
+        loyalty = record.loyalty,
+      })
+    end
+    cardDat.States = {[2] = {
+      Transform = {posX=0, posY=0, posZ=0, rotX=0, rotY=0, rotZ=0, scaleX=1, scaleY=1, scaleZ=1},
+      Name = 'Card',
+      Nickname = backNick,
+      Description = backOracle,
+      Memo = memo,
+      CardID = n * 100,
+      CustomDeck = {[tostring(n)] = {
+        FaceURL = backAddress,
+        BackURL = back,
+        NumWidth = 1,
+        NumHeight = 1,
+        Type = 0,
+        BackIsHidden = true,
+        UniqueBack = false,
+      }},
+    }}
+  end
+
+  return cardDat
 end
 
 function spawnTokenDeck(qTbl, tokens)
@@ -1410,40 +1517,42 @@ function spawnTokenDeck(qTbl, tokens)
       return
     end
 
-    local spawnPos, spawnRot = getTokenSpawnTransform(qTbl)
-    local back = DEFAULT_BACK
-    local yRot = 0
-    if Player[qTbl.color] then yRot = Player[qTbl.color].getPointerRotation() end
+    hydrateTokenEntries(tokens, function(hydrated)
+      local spawnPos, spawnRot = getTokenSpawnTransform(qTbl)
+      local back = DEFAULT_BACK
+      local yRot = 0
+      if Player[qTbl.color] then yRot = Player[qTbl.color].getPointerRotation() end
 
-    if #tokens == 1 then
-      spawnObjectData({
-        data = buildTokenCardDat(1, tokens[1].uuid, tokens[1].record, back),
-        position = spawnPos,
-        rotation = spawnRot or Vector(0, yRot, 0),
-      })
-    else
-      local deckDat = {
-        Transform = {posX=0, posY=0, posZ=0, rotX=0, rotY=0, rotZ=0, scaleX=1, scaleY=1, scaleZ=1},
-        Name = 'Deck',
-        Nickname = 'Tokens',
-        Description = qTbl.name,
-        DeckIDs = {},
-        CustomDeck = {},
-        ContainedObjects = {},
-      }
-      for i, tok in ipairs(tokens) do
-        local cardDat = buildTokenCardDat(i, tok.uuid, tok.record, back)
-        deckDat.DeckIDs[i] = cardDat.CardID
-        deckDat.CustomDeck[tostring(i)] = cardDat.CustomDeck[tostring(i)]
-        deckDat.ContainedObjects[i] = cardDat
+      if #hydrated == 1 then
+        spawnObjectData({
+          data = buildTokenCardDat(1, hydrated[1].uuid, hydrated[1].record, back),
+          position = spawnPos,
+          rotation = spawnRot or Vector(0, yRot, 0),
+        })
+      else
+        local deckDat = {
+          Transform = {posX=0, posY=0, posZ=0, rotX=0, rotY=0, rotZ=0, scaleX=1, scaleY=1, scaleZ=1},
+          Name = 'Deck',
+          Nickname = 'Tokens',
+          Description = qTbl.name,
+          DeckIDs = {},
+          CustomDeck = {},
+          ContainedObjects = {},
+        }
+        for i, tok in ipairs(hydrated) do
+          local cardDat = buildTokenCardDat(i, tok.uuid, tok.record, back)
+          deckDat.DeckIDs[i] = cardDat.CardID
+          deckDat.CustomDeck[tostring(i)] = cardDat.CustomDeck[tostring(i)]
+          deckDat.ContainedObjects[i] = cardDat
+        end
+        spawnObjectData({
+          data = deckDat,
+          position = spawnPos,
+          rotation = Vector(0, yRot, 180),
+        })
       end
-      spawnObjectData({
-        data = deckDat,
-        position = spawnPos,
-        rotation = Vector(0, yRot, 180),
-      })
-    end
-  if not qTbl.standalone then endLoop() end
+      if not qTbl.standalone then endLoop() end
+    end)
   end)
 end
 
@@ -3142,17 +3251,21 @@ MODES=MODES..' '..k end end
 --[[Functions used everywhere else]]
 local Usage=[[Card Importer (CDN) — chat commands
 
-Importer <card name>          Spawn one card from Kai CDN
-Importer deck <url>           Import deck (Archidekt, Moxfield, legacy sites)
-Importer deck                 Spawn from latest notebook tab
-Importer token                Spawn tokens for card under pointer
-Importer token debug          Token resolution diagnostics
-Importer print <name>         Alternate-art preview row (double-click to import)
+Scryfall <card name>          Spawn one card from Kai CDN
+Scryfall deck <url>           Import deck (Archidekt, Moxfield, legacy sites)
+Scryfall deck                 Spawn from latest notebook tab
+Scryfall token                Spawn tokens for card under pointer
+Scryfall token debug          Token resolution diagnostics
+Scryfall print <name>         Alternate-art preview row (double-click to import)
+Scryfall help                 Show this message
+
+Prefix ! is optional: !Scryfall Sol Ring
+Importer … is an alias for Scryfall … (same results)
 
 Admin:
-  Importer hide               Toggle chat feedback (admin)
-  Importer clear queue        Reload importer
-  Importer promote me         Promote player (host)
+  Scryfall hide               Toggle chat feedback (admin)
+  Scryfall clear queue        Reload importer
+  Scryfall promote me         Promote player (host)
 ]]
 function endLoop()
   if Importer.request[1] then
@@ -3177,80 +3290,90 @@ end
 
 local CHAT_COLOR={0.5,1,0.8}
 local chatToggle=false
-function onChat(msg,p)
-  if msg:find('!?[Ii]mporter ') then
-    local a=msg:match('!?[Ii]mporter (.*)') or false
-    if a=='hide'and p.admin then
-      chatToggle=not chatToggle
-      if chatToggle then msg='supressing' else msg='showing'end
-      broadcastToAll('Importer now '..msg..' chat messages.', CHAT_COLOR)
-    elseif a=='help'then
-      p.print(Usage,{0.9,0.9,0.9})return false
-    elseif a=='promote me' and p.host then
-      p.promote()
-    elseif a=='clear queue'then
-      printToAll('Respawning Importer!', CHAT_COLOR)
-      self.reload()
-    elseif a:lower():match('^token debug') then
-      if Importer.request[1] then
-        p.broadcast('Importer queue busy — debug runs immediately anyway.', {1, 0.8, 0.4})
-      end
-      debugTokenResolution(tokenChatTable(p, 'TokenDebug', a))
-      return false
-    elseif a:lower() == 'token' then
-      if Importer.request[1] then
-        p.broadcast('Importer queue busy — token spawn runs immediately anyway.', {1, 0.8, 0.4})
-      end
-      local tbl = tokenChatTable(p, 'Token', a)
-      if not tbl.target then
-        p.broadcast('No card under pointer. Keep the laser on a card while pressing Enter.', {1, 0.5, 0})
-        return false
-      end
-      spawnTokensForCard(tbl)
-      return false
-    elseif a then
-      --pieHere, allow using spaces instead of + when doing search syntax, also allow ( ) grouping
-      local tbl={position=p.getPointerPosition(),target=chatTargetFromPlayer(p),player=p.steam_id,color=p.color,url=a:match('(http%S+)'),mode=a:gsub('(http%S+)',''):match('(%S+)'),name=a:gsub('(http%S+)',''),full=a}
-      if tbl.color=='Grey' then
-        tbl.position={0,2,0}
-      end
-      if tbl.mode then
-        for k,v in pairs(Importer) do
-          if tbl.mode:lower()==k:lower() and type(v)=='function' then
-            tbl.mode,tbl.name=k,tbl.name:lower():gsub(k:lower(),'',1)
-            break end end end
 
-      if tbl.name:len()<1 then
-        tbl.name='blank card'
-      else
-        if tbl.name:sub(1,1)==' ' then
-          tbl.name=tbl.name:sub(2,-1)   --pieHere, remove 1st space
-        end
-        -- URL-encode special characters in card search syntax
-        charEncoder={ [' '] ='%%20',
-                      ['>'] ='%%3E',
-                      ['<'] ='%%3C',
-                      [':'] ='%%3A',
-                      ['%(']='%%28',
-                      ['%)']='%%29',
-                      ['%{']='%%7B',
-                      ['%}']='%%7D',
-                      ['%[']='%%5B',
-                      ['%]']='%%5D',
-                      ['%|']='%%7C',
-                      ['%/']='%%2F',
-                      ['\\']='%%5C',
-                      ['%^']='%%5E',
-                      ['%$']='%%24',
-                      ['%?']='%%3F',
-                      ['%!']='%%3F'}
-        for char,replacement in pairs(charEncoder) do
-          tbl.name=tbl.name:gsub(char,replacement)
-        end
-      end
-      Importer(tbl)
-      if chatToggle then return false end
+-- Parse "Scryfall ..." / "Importer ..." (optional leading !). Returns trimmed rest or nil.
+function parseImporterChatArgs(message)
+  if not message then return nil end
+  local rest = message:match('!?[Ss]cryfall%s+(.*)') or message:match('!?[Ii]mporter%s+(.*)')
+  if rest == nil then return nil end
+  rest = rest:gsub('^%s+', ''):gsub('%s+$', '')
+  if rest == '' then return nil end
+  return rest
+end
+
+function onChat(msg,p)
+  local a = parseImporterChatArgs(msg)
+  if a == nil then return end
+  if a=='hide'and p.admin then
+    chatToggle=not chatToggle
+    if chatToggle then msg='supressing' else msg='showing'end
+    broadcastToAll('Importer now '..msg..' chat messages.', CHAT_COLOR)
+  elseif a=='help'then
+    p.print(Usage,{0.9,0.9,0.9})return false
+  elseif a=='promote me' and p.host then
+    p.promote()
+  elseif a=='clear queue'then
+    printToAll('Respawning Importer!', CHAT_COLOR)
+    self.reload()
+  elseif a:lower():match('^token debug') then
+    if Importer.request[1] then
+      p.broadcast('Importer queue busy — debug runs immediately anyway.', {1, 0.8, 0.4})
     end
+    debugTokenResolution(tokenChatTable(p, 'TokenDebug', a))
+    return false
+  elseif a:lower() == 'token' then
+    if Importer.request[1] then
+      p.broadcast('Importer queue busy — token spawn runs immediately anyway.', {1, 0.8, 0.4})
+    end
+    local tbl = tokenChatTable(p, 'Token', a)
+    if not tbl.target then
+      p.broadcast('No card under pointer. Keep the laser on a card while pressing Enter.', {1, 0.5, 0})
+      return false
+    end
+    spawnTokensForCard(tbl)
+    return false
+  else
+    --pieHere, allow using spaces instead of + when doing search syntax, also allow ( ) grouping
+    local tbl={position=p.getPointerPosition(),target=chatTargetFromPlayer(p),player=p.steam_id,color=p.color,url=a:match('(http%S+)'),mode=a:gsub('(http%S+)',''):match('(%S+)'),name=a:gsub('(http%S+)',''),full=a}
+    if tbl.color=='Grey' then
+      tbl.position={0,2,0}
+    end
+    if tbl.mode then
+      for k,v in pairs(Importer) do
+        if tbl.mode:lower()==k:lower() and type(v)=='function' then
+          tbl.mode,tbl.name=k,tbl.name:lower():gsub(k:lower(),'',1)
+          break end end end
+
+    if tbl.name:len()<1 then
+      tbl.name='blank card'
+    else
+      if tbl.name:sub(1,1)==' ' then
+        tbl.name=tbl.name:sub(2,-1)   --pieHere, remove 1st space
+      end
+      -- URL-encode special characters in card search syntax
+      charEncoder={ [' '] ='%%20',
+                    ['>'] ='%%3E',
+                    ['<'] ='%%3C',
+                    [':'] ='%%3A',
+                    ['%(']='%%28',
+                    ['%)']='%%29',
+                    ['%{']='%%7B',
+                    ['%}']='%%7D',
+                    ['%[']='%%5B',
+                    ['%]']='%%5D',
+                    ['%|']='%%7C',
+                    ['%/']='%%2F',
+                    ['\\']='%%5C',
+                    ['%^']='%%5E',
+                    ['%$']='%%24',
+                    ['%?']='%%3F',
+                    ['%!']='%%3F'}
+      for char,replacement in pairs(charEncoder) do
+        tbl.name=tbl.name:gsub(char,replacement)
+      end
+    end
+    Importer(tbl)
+    if chatToggle then return false end
   end
 end
 
