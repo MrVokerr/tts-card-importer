@@ -49,11 +49,32 @@ function parseArgs(argv) {
   return opts;
 }
 
-function addToShard(shards, shardKey, mapKey, entry) {
+/**
+ * Append a related-token entry. Dedupes by UUID and by normalized token name so
+ * aggregating all_parts across every parent printing does not spawn every art.
+ * When defaultsByName has a canonical UUID for that name, prefer it.
+ */
+function addToShard(shards, shardKey, mapKey, entry, defaultsByName) {
   if (!shards[shardKey]) shards[shardKey] = {};
   if (!shards[shardKey][mapKey]) shards[shardKey][mapKey] = [];
   const list = shards[shardKey][mapKey];
-  if (!list.some((t) => (t.uuid || t) === (entry.uuid || entry))) list.push(entry);
+  const entryUuid = entry.uuid || entry;
+  const entryNorm = normalizeIndexName(entry.name || '');
+  const idx = list.findIndex((t) => {
+    const u = t.uuid || t;
+    if (u === entryUuid) return true;
+    if (entryNorm && normalizeIndexName(t.name || '') === entryNorm) return true;
+    return false;
+  });
+  if (idx >= 0) {
+    const preferred = entryNorm && defaultsByName ? defaultsByName[entryNorm] : null;
+    if (preferred && preferred === entryUuid) {
+      const cur = list[idx].uuid || list[idx];
+      if (cur !== preferred) list[idx] = entry;
+    }
+    return;
+  }
+  list.push(entry);
 }
 
 async function main() {
@@ -96,17 +117,17 @@ async function main() {
       };
 
       const pKey = tokenShardKey(card.id);
-      addToShard(parentShards, pKey, card.id, entry);
+      addToShard(parentShards, pKey, card.id, entry, defaultsByName);
 
       if (card.oracle_id) {
         const oKey = tokenShardKey(card.oracle_id);
-        addToShard(oracleShards, oKey, card.oracle_id, entry);
+        addToShard(oracleShards, oKey, card.oracle_id, entry, defaultsByName);
       }
 
       const parentNorm = normalizeIndexName(card.name);
       if (parentNorm) {
         const nKey = parentNameShardKey(parentNorm);
-        addToShard(parentNameShards, nKey, parentNorm, entry);
+        addToShard(parentNameShards, nKey, parentNorm, entry, defaultsByName);
       }
     }
   }

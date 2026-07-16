@@ -3,7 +3,7 @@
 -- Metadata:   https://pub-6c935b50ab2c43f291df08b7f566585b.r2.dev (Vokerr public index)
 -- Mirror hosts: see R2/METADATA.md and R2/MIRROR.md (set METADATA_CDN below).
 -- CDN-only at runtime — no Scryfall API.
-mod_name,version='Card Importer','6.3'
+mod_name,version='Card Importer','6.4'
 self.setName('[854FD9]'..mod_name..' [49D54F]'..version)
 textItems={}
 newText=setmetatable({
@@ -209,6 +209,32 @@ function relatedTokensFromParentNameEntry(entry)
         imageCdn = type(part) == 'table' and part.imageCdn or nil,
       })
     end
+  end
+  return dedupeRelatedTokensByName(out)
+end
+
+-- One printing per token name (CDN parent/oracle shards may list every art).
+function dedupeRelatedTokensByName(related)
+  if not related or #related == 0 then return nil end
+  local byNorm = {}
+  local order = {}
+  for _, part in ipairs(related) do
+    local uuid = part.uuid or part.id
+    if uuid then
+      local name = part.name or 'Token'
+      local norm = normalizeIndexName(name)
+      if norm == '' then norm = uuid end
+      if not byNorm[norm] then
+        byNorm[norm] = part
+        table.insert(order, norm)
+      elseif tokenDefaultsByName and tokenDefaultsByName[norm] == uuid then
+        byNorm[norm] = part
+      end
+    end
+  end
+  local out = {}
+  for _, norm in ipairs(order) do
+    table.insert(out, byNorm[norm])
   end
   return #out > 0 and out or nil
 end
@@ -1354,20 +1380,27 @@ end
 
 function collectTokenEntries(related, parentUuid)
   local tokens = {}
-  local seen = {}
-  for _, part in ipairs(related) do
+  local seenUuid = {}
+  local seenName = {}
+  for _, part in ipairs(dedupeRelatedTokensByName(related) or related) do
     local tokenUuid = part.uuid or part.id
-    if tokenUuid and not seen[tokenUuid] and tokenUuid ~= parentUuid then
-      seen[tokenUuid] = true
-      local tokenRec = getCachedRecord(tokenUuid)
-      if not tokenRec then
-        tokenRec = tokenRecordFromEntry(part)
+    local nameNorm = normalizeIndexName(part.name or (part.record and part.record.name) or 'Token')
+    if tokenUuid and not seenUuid[tokenUuid] and tokenUuid ~= parentUuid then
+      if nameNorm ~= '' and seenName[nameNorm] then
+        -- skip extra printings of the same token name
+      else
+        seenUuid[tokenUuid] = true
+        if nameNorm ~= '' then seenName[nameNorm] = true end
+        local tokenRec = getCachedRecord(tokenUuid)
+        if not tokenRec then
+          tokenRec = tokenRecordFromEntry(part)
+        end
+        if not tokenRec.name or tokenRec.name == '' then
+          tokenRec.name = part.name or 'Token'
+        end
+        if not tokenRec.type_line then tokenRec.type_line = 'Token' end
+        table.insert(tokens, {uuid = tokenUuid, record = tokenRec})
       end
-      if not tokenRec.name or tokenRec.name == '' then
-        tokenRec.name = part.name or 'Token'
-      end
-      if not tokenRec.type_line then tokenRec.type_line = 'Token' end
-      table.insert(tokens, {uuid = tokenUuid, record = tokenRec})
     end
   end
   return tokens
@@ -1597,6 +1630,7 @@ function backfillTokenEmbedOnTarget(target, qTbl, related, oracleId)
 end
 
 function spawnRelatedTokensWithBackfill(qTbl, related, parentUuid, oracleId)
+  related = dedupeRelatedTokensByName(related) or related
   spawnRelatedTokens(qTbl, related, parentUuid)
   if qTbl.target then
     backfillTokenEmbedOnTarget(qTbl.target, qTbl, related, oracleId)
