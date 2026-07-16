@@ -2,6 +2,7 @@
  * Map Scryfall bulk/API card objects to TTS metadata index records.
  * Fields consumed by Card Importer.lua indexRecordToCardObject.
  */
+import { partIsTokenOrEmblem } from './token-like.js';
 
 function faceFromScryfall(face, imageUuid) {
   if (!face) return null;
@@ -23,8 +24,7 @@ function relatedTokensFromCard(card) {
   const seen = new Set();
   for (const part of card.all_parts || []) {
     if (!part.id || seen.has(part.id)) continue;
-    const tl = part.type_line || '';
-    if (!tl.includes('Token') && !tl.includes('Emblem')) continue;
+    if (!partIsTokenOrEmblem(part)) continue;
     seen.add(part.id);
     out.push({
       uuid: part.id,

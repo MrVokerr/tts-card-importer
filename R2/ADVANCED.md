@@ -66,11 +66,12 @@ Extend `worker/src/index.js` to add `prices`, `legalities`, etc. from your datab
 
 | Phase | Scryfall | This project |
 |-------|----------|--------------|
-| Build index | Bulk `default-cards.json` download | `npm run build:fetch` |
+| Build index | Bulk `default-cards` **JSONL.gz** (`jsonl_download_uri`) | `npm run build:fetch` / `build:tokens` via `lib/fetch-bulk.js` |
+| Daily token sync | Same JSONL (CI ephemeral) | `npm run sync:tokens` → R2 |
 | TTS play | Not called | R2 static JSON only |
 | Advanced API | Optional live merge | Your choice |
 
-Respect [Scryfall API terms](https://scryfall.com/docs/api) when downloading bulk or calling live APIs.
+Array JSON bulk is retired after **2026-07-20**. Respect [Scryfall API terms](https://scryfall.com/docs/api) when downloading bulk or calling live APIs.
 
 ---
 

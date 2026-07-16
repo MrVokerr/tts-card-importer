@@ -1,6 +1,6 @@
 {
   "name": "tts-card-metadata",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Build and mirror tooling for TTS Card Importer R2 metadata CDN",
   "type": "module",
   "private": true,
@@ -8,11 +8,20 @@
     "build": "node scripts/build-index.js",
     "build:fetch": "node scripts/build-index.js --fetch",
     "build:full": "node scripts/build-index.js --mode=full --fetch",
-    "build:tokens": "node scripts/build-token-index.js",
-    "build:all": "npm run build:fetch && npm run build:tokens",
-    "verify": "node scripts/verify.js"
+    "build:tokens": "node scripts/build-token-index.js --fetch",
+    "build:tokens:local": "node scripts/build-token-index.js",
+    "build:all": "npm run build:fetch && npm run build:tokens:local",
+    "sync:tokens": "node scripts/sync-tokens.js",
+    "sync:tokens:dry": "node scripts/sync-tokens.js --dry-run",
+    "publish:r2": "node scripts/publish-r2.js",
+    "verify": "node scripts/verify.js",
+    "test": "node scripts/qa-selftest.js",
+    "qa": "npm test && npm run verify"
   },
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.787.0"
   }
 }

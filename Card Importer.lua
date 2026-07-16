@@ -3,7 +3,7 @@
 -- Metadata:   https://pub-6c935b50ab2c43f291df08b7f566585b.r2.dev (Vokerr public index)
 -- Mirror hosts: see R2/METADATA.md and R2/MIRROR.md (set METADATA_CDN below).
 -- CDN-only at runtime — no Scryfall API.
-mod_name,version='Card Importer','6.2'
+mod_name,version='Card Importer','6.3'
 self.setName('[854FD9]'..mod_name..' [49D54F]'..version)
 textItems={}
 newText=setmetatable({
@@ -1649,6 +1649,9 @@ function resolveTokenUuidByName(name, defaults, opts)
   defaults = defaults or tokenDefaultsByName or {}
   opts = opts or {}
   local allowAmbiguous = opts.allowAmbiguousDefaults ~= false
+  -- Oracle fallback must not substring-match (e.g. "2/2 red Dwarf" → wrong 1/1 Dwarf).
+  -- CDN all_parts / parent-name shards remain the accurate path once Scryfall links tokens.
+  local exactDefaultsOnly = opts.exactDefaultsOnly == true
   local clean = normalizeTokenLookupName(name)
   if clean == '' then return nil, nil end
   local norm = normalizeIndexName(clean)
@@ -1661,6 +1664,10 @@ function resolveTokenUuidByName(name, defaults, opts)
     local rec = { name = clean, type_line = 'Token' }
     if tokenR2Fallbacks[uid] then rec.imageCdn = tokenR2ImageCdn end
     return uid, rec
+  end
+
+  if exactDefaultsOnly then
+    return nil, nil
   end
 
   local bestKey, bestLen = nil, 0
@@ -1815,14 +1822,25 @@ end
 function tokensFromOracleText(oracleText, defaults, opts)
   local out = {}
   local seen = {}
+  local unresolved = {}
   local function addEntry(uuid, rec, name)
     if not uuid or seen[uuid] then return end
     seen[uuid] = true
     table.insert(out, { uuid = uuid, record = rec or { name = name or 'Token', type_line = 'Token' } })
   end
+  local function noteUnresolved(name)
+    local clean = normalizeTokenLookupName(name)
+    if clean == '' then return end
+    local key = normalizeIndexName(clean)
+    if unresolved[key] then return end
+    -- Skip garbage parses that are clearly not token type names
+    if key:find('sacrifice') or key:find('opponent') or key:find('nontoken') then return end
+    if #key < 2 then return end
+    unresolved[key] = clean
+  end
   for _, name in ipairs(parseTokenNamesFromOracle(oracleText)) do
     local uuid, rec = resolveTokenUuidByName(name, defaults, opts)
-    if uuid then addEntry(uuid, rec, name) end
+    if uuid then addEntry(uuid, rec, name) else noteUnresolved(name) end
   end
   for _, name in ipairs(parseEmblemNamesFromOracle(oracleText)) do
     local emblemName = name
@@ -1830,14 +1848,32 @@ function tokensFromOracleText(oracleText, defaults, opts)
       emblemName = emblemName .. ' Emblem'
     end
     local uuid, rec = resolveTokenUuidByName(emblemName, defaults, opts)
-    if uuid then addEntry(uuid, rec, emblemName) end
+    if uuid then addEntry(uuid, rec, emblemName) else noteUnresolved(emblemName) end
   end
-  return out
+  local missing = {}
+  for _, clean in pairs(unresolved) do table.insert(missing, clean) end
+  table.sort(missing)
+  return out, missing
 end
 
 function spawnTokensFromOracle(qTbl, oracleText, defaults, opts)
-  local tokens = tokensFromOracleText(oracleText, defaults, opts)
-  if #tokens == 0 then return false end
+  local tokens, missing = tokensFromOracleText(oracleText, defaults, opts)
+  if #tokens == 0 then
+    if missing and #missing > 0 then
+      Player[qTbl.color].broadcast(
+        'Token not on Scryfall/CDN yet: '..table.concat(missing, ', ')..
+          '. When Scryfall links the token, daily sync will pick it up.',
+        {1, 0.55, 0.2}
+      )
+    end
+    return false
+  end
+  if missing and #missing > 0 then
+    Player[qTbl.color].broadcast(
+      'Spawned available tokens. Still missing on Scryfall/CDN: '..table.concat(missing, ', '),
+      {1, 0.7, 0.3}
+    )
+  end
   spawnTokenDeck(qTbl, tokens)
   return true
 end
@@ -1848,7 +1884,8 @@ function finishTokenLookup(qTbl, parentUuid, parentOracleId, fromHover, expectsT
   local oracleText = ''
   if qTbl.target then oracleText = qTbl.target.getDescription() or '' end
   if not expectsTokens then expectsTokens = oracleExpectsRelatedParts(oracleText) end
-  local resolveOpts = { allowAmbiguousDefaults = false }
+  -- Exact defaults only: never fuzzy-match wrong reprint tokens from oracle text.
+  local resolveOpts = { allowAmbiguousDefaults = false, exactDefaultsOnly = true }
 
   local function markSettled()
     if onSettled then onSettled() end
@@ -1858,7 +1895,7 @@ function finishTokenLookup(qTbl, parentUuid, parentOracleId, fromHover, expectsT
     markSettled()
     if expectsTokens then
       Player[qTbl.color].broadcast(
-        'Token data not found for this card. Try reimporting the deck, or check metadata CDN.',
+        'Token not on Scryfall/CDN yet for this card. When Scryfall links the token, daily sync will pick it up.',
         {1, 0.5, 0}
       )
     else
@@ -1959,7 +1996,7 @@ function resolveTokensForTarget(qTbl, callback)
   tryDefaultsFallback = function(resolvedOid)
     loadTokenDefaults(function(defaults)
       local oracleText = target.getDescription() or ''
-      local resolveOpts = { allowAmbiguousDefaults = false }
+      local resolveOpts = { allowAmbiguousDefaults = false, exactDefaultsOnly = true }
       if spawnTokensFromOracle(qTbl, oracleText, defaults, resolveOpts) then
         callback('__spawned__', uuid, resolvedOid)
         return

@@ -160,11 +160,24 @@ See [schema/card-record.schema.json](schema/card-record.schema.json) and [schema
 
 ---
 
+## Token sync state (CI)
+
+```
+GET /index/token-sync-state.json
+```
+
+Written last by the daily token sync job. Clients do not need this file. Operators use it for skip-if-unchanged and regression gates (`bulkUpdatedAt`, `counts`).
+
+Token UUID records (including `double_faced_token` `card_faces`) are upserted into `index/cards/shards/{shard}.json` and merged with existing seed card entries on publish.
+
+---
+
 ## Not supported
 
 - `api.scryfall.com` at runtime
 - Scryfall search syntax (`t:creature`, `c:g`, `o:"..."`, etc.)
 - Fuzzy `/cards/named` REST API (unless you add a Worker — see [ADVANCED.md](ADVANCED.md))
+- Hosting Scryfall bulk `.jsonl.gz` on the public CDN (build/CI scratch only)
 
 ---
 

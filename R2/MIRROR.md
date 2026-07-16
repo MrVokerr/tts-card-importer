@@ -51,29 +51,32 @@ Enable **public access** (R2 custom domain or `r2.dev` subdomain) so TTS can `We
 
 ---
 
-## Option 2 — Rebuild from Scryfall bulk
+## Option 2 — Rebuild from Scryfall bulk (JSONL.gz)
+
+Scryfall retires array JSON bulk on **2026-07-20**. Builds use `jsonl_download_uri` (`.jsonl.gz`) streamed by `lib/fetch-bulk.js`. Bulk files stay in gitignored `data/` on the builder only — **never** host them on the public CDN.
 
 ```bash
 cd R2
+npm install
 cp config/seeds.example.json config/seeds.json   # edit as needed
 npm run build:fetch      # --mode=seed (default) or --mode=full
-npm run build:tokens
+npm run build:tokens     # token shards + token UUID card records
 ```
 
 Output: `dist/index/**`
 
-Upload `dist/index` to your bucket root (paths must match [METADATA.md](METADATA.md)).
+Upload `dist/index` to your bucket root (paths must match [METADATA.md](METADATA.md)), or use the automated publisher below.
 
 ### Build flags
 
 | Flag | Purpose |
 |------|---------|
-| `--fetch` | Download `default-cards.json` from Scryfall |
+| `--fetch` | Download latest `default-cards` **JSONL.gz** from Scryfall |
 | `--mode=seed` | Use `config/seeds.json` name/set filters |
 | `--mode=full` | All English non-digital paper cards |
 | `--base-url=https://...` | Set `publicBaseUrl` in manifest |
 | `--include-advanced` | Include prices, legalities, etc. in records |
-| `--input=path` | Use existing bulk JSON |
+| `--input=path` | Use existing bulk `.jsonl.gz` (or legacy `.json` before cutoff) |
 | `--out=path` | Output directory (default `dist`) |
 
 ---
@@ -129,11 +132,51 @@ npm run verify
 
 ---
 
+## Daily token sync (automated)
+
+GitHub Actions workflow [`.github/workflows/r2-token-sync.yml`](../.github/workflows/r2-token-sync.yml) rebuilds **token metadata only** once per day and publishes to R2.
+
+```bash
+# Local dry run (no credentials / no R2 writes)
+npm run sync:tokens:dry
+
+# Full sync (requires env secrets)
+npm run sync:tokens
+```
+
+### Behavior / failsafes
+
+- Skip publish when Scryfall `bulk.updated_at` matches remote `index/token-sync-state.json`
+- Build entirely into local `dist/` before any R2 write
+- Refuse publish if oracle/parent counts are empty or drop >5% vs previous sync-state
+- Never delete the remote `index/tokens/` prefix first (overwrite keys only)
+- Card shards: **merge** local token records into live R2 shards so seed card records are not wiped
+- Write `index/token-sync-state.json` last
+- Post-upload smoke check; failed job leaves last good index for clients
+
+### Daily token sync secrets
+
+Add these repository secrets on `tts-card-importer`:
+
+| Secret | Purpose |
+|--------|---------|
+| `R2_ACCOUNT_ID` | Cloudflare account ID |
+| `R2_ACCESS_KEY_ID` | R2 S3 API access key |
+| `R2_SECRET_ACCESS_KEY` | R2 S3 API secret |
+| `R2_BUCKET` | Bucket name |
+| `R2_PUBLIC_BASE_URL` | Public HTTPS origin (e.g. `https://pub-….r2.dev`) |
+
+Do not commit API tokens or bucket credentials.
+
+Manual retry: Actions → **R2 token sync** → Run workflow (`force=true` to ignore unchanged bulk).
+
+---
+
 ## One-time upload (manual)
 
-No upload automation ships in this repo. After building:
+After a local build you can still upload without Actions:
 
-1. Cloudflare dashboard → R2 → Upload folder
-2. Or `wrangler r2 object put` per file (see Cloudflare docs)
+1. Cloudflare dashboard → R2 → Upload `dist/index` folder
+2. Or `npm run publish:r2` with the same env secrets as above
 
 Do not commit API tokens or bucket credentials.

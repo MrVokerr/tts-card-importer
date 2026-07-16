@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Build card metadata shards from Scryfall default_cards bulk.
+ * Build card metadata shards from Scryfall default_cards bulk (JSONL.gz).
  * Usage: node scripts/build-index.js [--fetch] [--mode=seed|full] [--input=path] [--base-url=url]
  */
 import fs from 'fs';
@@ -14,17 +14,18 @@ import {
 } from '../lib/card-record.js';
 import { normalizeIndexName } from '../lib/normalize.js';
 import { writeCardIndex } from '../lib/write-shards.js';
+import { ensureBulkFile, iterateBulkCards } from '../lib/fetch-bulk.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
-const BULK_URL = 'https://data.scryfall.io/default-cards/default-cards.json';
 const DEFAULT_OUT = path.join(ROOT, 'dist');
+const DEFAULT_INPUT = path.join(ROOT, 'data', 'default-cards.jsonl.gz');
 
 function parseArgs(argv) {
   const opts = {
     fetch: false,
     mode: 'seed',
-    input: path.join(ROOT, 'data', 'default-cards.json'),
+    input: DEFAULT_INPUT,
     out: DEFAULT_OUT,
     baseUrl: 'https://pub-6c935b50ab2c43f291df08b7f566585b.r2.dev',
     includeAdvanced: false,
@@ -39,24 +40,12 @@ function parseArgs(argv) {
     else if (arg === '--include-advanced') opts.includeAdvanced = true;
     else if (arg.startsWith('--seeds=')) opts.seeds = arg.split('=')[1];
   }
+  // Legacy default path: if only .json exists and no .jsonl.gz, allow it (pre-cutoff)
+  if (!opts.fetch && !fs.existsSync(opts.input)) {
+    const legacy = path.join(ROOT, 'data', 'default-cards.json');
+    if (fs.existsSync(legacy)) opts.input = legacy;
+  }
   return opts;
-}
-
-async function loadBulk(opts) {
-  if (opts.fetch) {
-    console.log('Downloading Scryfall bulk default_cards...');
-    const res = await fetch(BULK_URL);
-    if (!res.ok) throw new Error(`Bulk download failed: ${res.status}`);
-    fs.mkdirSync(path.dirname(opts.input), { recursive: true });
-    const text = await res.text();
-    fs.writeFileSync(opts.input, text);
-    console.log(`Saved ${opts.input}`);
-  }
-  if (!fs.existsSync(opts.input)) {
-    throw new Error(`Missing bulk file: ${opts.input}. Run with --fetch or place default-cards.json in data/`);
-  }
-  console.log(`Reading ${opts.input}...`);
-  return JSON.parse(fs.readFileSync(opts.input, 'utf8'));
 }
 
 function loadSeedSet(opts) {
@@ -77,15 +66,20 @@ function passesSeedFilter(card, seed) {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
-  const bulk = await loadBulk(opts);
-  const cards = bulk.data || bulk;
+  const { path: bulkPath } = await ensureBulkFile({
+    fetch: opts.fetch,
+    input: opts.input,
+  });
+
   const seed = opts.mode === 'seed' ? loadSeedSet(opts) : null;
   if (seed) console.log(`Seed mode using ${seed.file}`);
 
   const records = new Map();
   const allByOracle = new Map();
+  let scanned = 0;
 
-  for (const card of cards) {
+  for await (const card of iterateBulkCards(bulkPath)) {
+    scanned++;
     if (!shouldIncludeCard(card)) continue;
     if (opts.mode === 'seed' && !passesSeedFilter(card, seed)) continue;
 
@@ -101,12 +95,18 @@ async function main() {
     }
   }
 
-  console.log(`Indexed ${records.size} cards, ${allByOracle.size} oracle printings groups`);
+  if (scanned === 0) throw new Error('Bulk scan produced zero cards');
+
+  console.log(
+    `Scanned ${scanned} bulk rows; indexed ${records.size} cards, ${allByOracle.size} oracle printings groups`
+  );
   const manifest = writeCardIndex(opts.out, records, allByOracle, {
     publicBaseUrl: opts.baseUrl,
     mode: opts.mode === 'seed' ? 'seed-only' : 'full',
   });
-  console.log(`Wrote ${opts.out}/index/card-index.json (version ${manifest.version}, entries ${manifest.stats.entries})`);
+  console.log(
+    `Wrote ${opts.out}/index/card-index.json (version ${manifest.version}, entries ${manifest.stats.entries})`
+  );
 }
 
 main().catch((err) => {

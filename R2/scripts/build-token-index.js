@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 /**
  * Build token metadata shards from Scryfall bulk (all_parts, token layouts).
+ * Prefers JSONL.gz via --fetch. Also upserts token UUID records into card shards
+ * so Card Importer ensureCardRecords can load DFC card_faces.
+ *
+ * Usage:
+ *   node scripts/build-token-index.js [--fetch] [--input=path] [--out=path]
  */
 import fs from 'fs';
 import path from 'path';
@@ -8,45 +13,40 @@ import { fileURLToPath } from 'url';
 import { parentNameShardKey, tokenShardKey } from '../lib/shard-keys.js';
 import { normalizeIndexName } from '../lib/normalize.js';
 import { scryfallToIndexRecord, shouldIncludeCard } from '../lib/card-record.js';
-import { writeTokenIndex } from '../lib/write-shards.js';
+import {
+  writeTokenIndex,
+  writeTokenCardRecords,
+  writeTokenSyncState,
+} from '../lib/write-shards.js';
+import { countShardMapKeys } from '../lib/token-sync-guards.js';
+import { ensureBulkFile, iterateBulkCards } from '../lib/fetch-bulk.js';
+import { isTokenLike, partIsTokenOrEmblem } from '../lib/token-like.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 
 function parseArgs(argv) {
   const opts = {
-    input: path.join(ROOT, 'data', 'default-cards.json'),
+    fetch: false,
+    input: path.join(ROOT, 'data', 'default-cards.jsonl.gz'),
     out: path.join(ROOT, 'dist'),
     baseUrl: 'https://pub-6c935b50ab2c43f291df08b7f566585b.r2.dev',
     imageCdn: 'https://img.klrmngr.com',
+    writeSyncState: true,
   };
   for (const arg of argv) {
-    if (arg.startsWith('--input=')) opts.input = arg.split('=')[1];
+    if (arg === '--fetch') opts.fetch = true;
+    else if (arg.startsWith('--input=')) opts.input = arg.split('=')[1];
     else if (arg.startsWith('--out=')) opts.out = arg.split('=')[1];
     else if (arg.startsWith('--base-url=')) opts.baseUrl = arg.split('=')[1];
     else if (arg.startsWith('--image-cdn=')) opts.imageCdn = arg.split('=')[1];
+    else if (arg === '--no-sync-state') opts.writeSyncState = false;
+  }
+  if (!opts.fetch && !fs.existsSync(opts.input)) {
+    const legacy = path.join(ROOT, 'data', 'default-cards.json');
+    if (fs.existsSync(legacy)) opts.input = legacy;
   }
   return opts;
-}
-
-function isTokenLike(card) {
-  const tl = card.type_line || '';
-  const layout = card.layout || '';
-  return layout === 'token' || layout === 'emblem' || tl.includes('Token') || tl.includes('Emblem');
-}
-
-function tokenEntry(card) {
-  return {
-    uuid: card.id,
-    name: card.name || 'Token',
-    type_line: card.type_line,
-    oracle_id: card.oracle_id,
-    oracle_text: card.oracle_text,
-    power: card.power,
-    toughness: card.toughness,
-    loyalty: card.loyalty,
-    cmc: card.cmc,
-  };
 }
 
 function addToShard(shards, shardKey, mapKey, entry) {
@@ -58,29 +58,36 @@ function addToShard(shards, shardKey, mapKey, entry) {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
-  if (!fs.existsSync(opts.input)) {
-    throw new Error(`Missing ${opts.input}. Run build-index.js --fetch first.`);
-  }
-  const cards = JSON.parse(fs.readFileSync(opts.input, 'utf8'));
-  const list = cards.data || cards;
+  const { path: bulkPath, meta } = await ensureBulkFile({
+    fetch: opts.fetch || !fs.existsSync(opts.input),
+    input: opts.input,
+  });
 
   const parentShards = {};
   const oracleShards = {};
   const parentNameShards = {};
   const defaultsByName = {};
+  const tokenRecords = new Map();
+  let scanned = 0;
+  let tokenLikeCount = 0;
 
-  for (const card of list) {
-    if (!shouldIncludeCard(card) && !isTokenLike(card)) continue;
+  for await (const card of iterateBulkCards(bulkPath)) {
+    scanned++;
+    const tokenLike = isTokenLike(card);
+    if (!shouldIncludeCard(card) && !tokenLike) continue;
 
-    if (isTokenLike(card)) {
+    if (tokenLike) {
+      tokenLikeCount++;
       const norm = normalizeIndexName(card.name);
       if (norm && !defaultsByName[norm]) defaultsByName[norm] = card.id;
+      if (!tokenRecords.has(card.id)) {
+        tokenRecords.set(card.id, scryfallToIndexRecord(card));
+      }
     }
 
     for (const part of card.all_parts || []) {
       if (!part.id) continue;
-      const partType = part.type_line || '';
-      if (!partType.includes('Token') && !partType.includes('Emblem')) continue;
+      if (!partIsTokenOrEmblem(part)) continue;
 
       const entry = {
         uuid: part.id,
@@ -104,6 +111,9 @@ async function main() {
     }
   }
 
+  if (scanned === 0) throw new Error('Bulk scan produced zero cards');
+  if (tokenLikeCount === 0) throw new Error('No token-like cards found in bulk');
+
   const defaults = {
     generatedAt: new Date().toISOString(),
     imageCdn: opts.imageCdn,
@@ -120,8 +130,48 @@ async function main() {
     defaults,
   });
 
+  const { shardKeys, entryCount } = writeTokenCardRecords(opts.out, tokenRecords);
+
+  const counts = {
+    oracleKeyCount: countShardMapKeys(oracleShards),
+    parentKeyCount: countShardMapKeys(parentShards),
+    nameKeyCount: countShardMapKeys(parentNameShards),
+    tokenRecordCount: entryCount,
+    defaultsCount: Object.keys(defaultsByName).length,
+    tokenShardFileCount: Object.keys(parentShards).length,
+    oracleShardFileCount: Object.keys(oracleShards).length,
+    nameShardFileCount: Object.keys(parentNameShards).length,
+    tokenCardShardFileCount: shardKeys.length,
+  };
+
+  const syncState = {
+    builtAt: new Date().toISOString(),
+    bulkUpdatedAt: meta?.updatedAt || null,
+    jsonlUri: meta?.jsonlUri || null,
+    bulkFormat: meta?.format || null,
+    publicBaseUrl: opts.baseUrl,
+    scanned,
+    tokenLikeCount,
+    counts,
+  };
+
+  if (opts.writeSyncState) {
+    writeTokenSyncState(opts.out, syncState);
+  }
+
+  // Local summary for publish-r2 / sync-tokens
+  fs.mkdirSync(opts.out, { recursive: true });
+  fs.writeFileSync(
+    path.join(opts.out, 'token-build-summary.json'),
+    JSON.stringify({ ...syncState, tokenCardShardKeys: shardKeys }, null, 2)
+  );
+
   console.log(
-    `Token index: parent shards ${Object.keys(parentShards).length}, oracle shards ${Object.keys(oracleShards).length}, name shards ${Object.keys(parentNameShards).length}`
+    `Token index: parent shards ${counts.tokenShardFileCount}, oracle shards ${counts.oracleShardFileCount}, ` +
+      `name shards ${counts.nameShardFileCount}, token records ${entryCount} across ${shardKeys.length} card shards`
+  );
+  console.log(
+    `Counts: oracleKeys=${counts.oracleKeyCount} parentKeys=${counts.parentKeyCount} defaults=${counts.defaultsCount}`
   );
 }
 

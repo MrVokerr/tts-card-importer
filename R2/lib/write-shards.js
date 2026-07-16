@@ -139,3 +139,56 @@ export function writeTokenIndex(outDir, tokenData) {
   }
   writeJson(path.join(outDir, 'index', 'token-cdn-defaults.json'), tokenData.defaults);
 }
+
+/**
+ * Write/merge token UUID records into card record shards (for ensureCardRecords / DFC faces).
+ * Does not rewrite name/set/oracle/printings indexes — token spawn only needs UUID→record.
+ * @param {string} outDir
+ * @param {Map<string, object>|Record<string, object>} records uuid -> index record
+ * @returns {{ shardKeys: string[], entryCount: number }}
+ */
+export function writeTokenCardRecords(outDir, records) {
+  const recordShards = {};
+  const entries = records instanceof Map ? records.entries() : Object.entries(records);
+  let entryCount = 0;
+  for (const [uuid, rec] of entries) {
+    if (!uuid || !rec) continue;
+    const rKey = tokenShardKey(uuid);
+    if (!recordShards[rKey]) recordShards[rKey] = {};
+    recordShards[rKey][uuid] = rec;
+    entryCount++;
+  }
+
+  const base = path.join(outDir, 'index', 'cards', 'shards');
+  for (const [k, shard] of Object.entries(recordShards)) {
+    const filePath = path.join(base, `${k}.json`);
+    let merged = shard;
+    if (fs.existsSync(filePath)) {
+      try {
+        const existing = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        merged = { ...existing, ...shard };
+      } catch {
+        merged = shard;
+      }
+    }
+    writeJson(filePath, merged);
+  }
+  return { shardKeys: Object.keys(recordShards), entryCount };
+}
+
+/**
+ * @param {string} outDir
+ * @param {object} state
+ */
+export function writeTokenSyncState(outDir, state) {
+  writeJson(path.join(outDir, 'index', 'token-sync-state.json'), state);
+}
+
+/**
+ * Merge local token/card records over a remote shard object (remote wins for keys not in local).
+ */
+export function mergeShardRecords(remote, local) {
+  if (!remote || typeof remote !== 'object') return { ...(local || {}) };
+  if (!local || typeof local !== 'object') return { ...remote };
+  return { ...remote, ...local };
+}
