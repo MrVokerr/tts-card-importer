@@ -154,21 +154,26 @@ npm run sync:tokens
 - Write `index/token-sync-state.json` last
 - Post-upload smoke check; failed job leaves last good index for clients
 
-### Daily token sync secrets
+### Daily token sync (primary: local Windows task)
 
-Add these repository secrets on `tts-card-importer`:
+GitHub Actions schedule is **disabled** (manual `workflow_dispatch` only). Primary path:
 
-| Secret | Purpose |
-|--------|---------|
-| `R2_ACCOUNT_ID` | Cloudflare account ID |
-| `R2_ACCESS_KEY_ID` | R2 S3 API access key |
-| `R2_SECRET_ACCESS_KEY` | R2 S3 API secret |
-| `R2_BUCKET` | Bucket name |
-| `R2_PUBLIC_BASE_URL` | Public HTTPS origin (e.g. `https://pub-….r2.dev`) |
+1. Copy `R2/.env.example` → `R2/.env` and set `CLOUDFLARE_API_TOKEN` (or R2 S3 keys).
+2. Register the task once:
 
-Do not commit API tokens or bucket credentials.
+```powershell
+powershell -ExecutionPolicy Bypass -File "R2/scripts/install-token-sync-task.ps1"
+```
 
-Manual retry: Actions → **R2 token sync** → Run workflow (`force=true` to ignore unchanged bulk).
+3. Manual run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "R2/scripts/sync-tokens-local.ps1" -Force
+```
+
+Logs: `R2/logs/token-sync-*.log`. The PC must be on around **23:00 local (Pacific)** ≈ 06:00 UTC.
+
+Optional GitHub secrets (manual Actions backup only): `CLOUDFLARE_API_TOKEN`, `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL`. Do not commit credentials.
 
 ---
 

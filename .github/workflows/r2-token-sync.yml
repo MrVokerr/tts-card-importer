@@ -1,9 +1,8 @@
+# Optional manual backup only. Primary sync is local Windows Task Scheduler
+# (R2/scripts/sync-tokens-local.ps1) — avoids Actions flake / null conclusions.
 name: R2 token sync
 
 on:
-  schedule:
-    # Daily 06:00 UTC
-    - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
       force:
