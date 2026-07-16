@@ -15,7 +15,7 @@ Players never download Scryfall bulk files — only small CDN shards. Bulk JSONL
 | Doc | Contents |
 |-----|----------|
 | [METADATA.md](METADATA.md) | Full HTTP paths, shard key algorithms, JSON record shapes |
-| [MIRROR.md](MIRROR.md) | Clone the public bucket, daily token sync, R2 secrets |
+| [MIRROR.md](MIRROR.md) | Clone the public bucket or host your own |
 | [ADVANCED.md](ADVANCED.md) | Superset records, advanced metadata API, optional Worker |
 | [worker/README.md](worker/README.md) | Example Cloudflare Worker (`/v1/cards/{uuid}`) |
 
@@ -32,28 +32,12 @@ npm run verify                 # check shard keys against live public CDN
 npm run build:fetch            # JSONL → seed card index → dist/
 npm run build:tokens           # JSONL → token shards + token card records → dist/
 npm run sync:tokens:dry        # build + sanity gates, no R2 write
-npm run sync:tokens            # daily CI path: build + publish + smoke (needs R2 secrets)
+npm run sync:tokens            # build + publish + smoke
 ```
 
 Copy `config/seeds.example.json` → `config/seeds.json` to customize seed-mode builds.
 
-Output lands in `dist/index/**` (gitignored). **Never** publish the bulk `.jsonl.gz` to the public bucket.
-
----
-
-## Daily token sync (GitHub Actions)
-
-Workflow: [`.github/workflows/r2-token-sync.yml`](../.github/workflows/r2-token-sync.yml)
-
-- Runs daily (06:00 UTC) + manual `workflow_dispatch`
-- Rebuilds token metadata from latest Scryfall JSONL
-- Upserts token UUID records (including DFC `card_faces`) into card shards (merged with live R2)
-- Fail-closed: skips publish if bulk unchanged; refuses publish on empty/regressed counts
-- Does not change Card Importer.lua
-
-Required GitHub secrets — see [MIRROR.md](MIRROR.md#daily-token-sync-primary-github-actions).
-
-This runs on **GitHub-hosted runners**. Your PC is not part of the daily path.
+Output lands in `dist/index/**` (gitignored). Do not publish the bulk `.jsonl.gz` to the public bucket.
 
 ---
 
