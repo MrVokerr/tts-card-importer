@@ -2,13 +2,28 @@
 
 A Tabletop Simulator object script for spawning Magic: The Gathering cards and importing decks.
 
-**Original by Amuzet · Adapted by Vokerr**
+**Original by Amuzet · Adapted by Vokerr · v6.3**
+
+---
+
+## How it works
+
+| Layer | What runs | Where |
+|-------|-----------|--------|
+| In TTS | `Card Importer.lua` | Your table (paste into an object) |
+| Card images | Kai CDN | `https://img.klrmngr.com` |
+| Card / token metadata | Static JSON on Cloudflare R2 | `https://pub-6c935b50ab2c43f291df08b7f566585b.r2.dev` |
+| Daily token index refresh | GitHub Actions → Scryfall bulk JSONL → R2 | Online (not your PC) |
+
+**At play time there are no Scryfall API calls.** TTS only fetches small CDN shards. Scryfall bulk data is used only on GitHub-hosted runners to rebuild token metadata for new sets.
+
+Credentials for publishing to R2 live in **GitHub Actions secrets** only. They are never committed to this repo.
 
 ---
 
 ## Quick reference
 
-Type in global chat. `!Importer` and `Importer` both work.
+Type in global chat. `Importer …` and `Scryfall …` both work (same commands).
 
 | What you want | Command |
 |---------------|---------|
@@ -29,16 +44,14 @@ Type in global chat. `!Importer` and `Importer` both work.
 
 1. Create or open a custom object in Tabletop Simulator.
 2. Paste the full contents of [`Card Importer.lua`](Card%20Importer.lua) into its script.
-3. Save — no config needed.
+3. Save — no local config or card database needed.
 
 ### CDN dependencies
 
 | | URL |
 |---|-----|
 | Card images | [img.klrmngr.com](https://img.klrmngr.com) |
-| Metadata index | `pub-6c935b50ab2c43f291df08b7f566585b.r2.dev` |
-
-Everything resolves from these at runtime. No Scryfall API calls during import.
+| Metadata index | [`pub-6c935b50ab2c43f291df08b7f566585b.r2.dev`](https://pub-6c935b50ab2c43f291df08b7f566585b.r2.dev) |
 
 ### Metadata CDN / self-hosting
 
@@ -46,10 +59,25 @@ The importer reads static JSON shards from an R2-compatible host. To **mirror**,
 
 - [R2/README.md](R2/README.md) — overview and build commands
 - [R2/METADATA.md](R2/METADATA.md) — full URL and shard contract
-- [R2/MIRROR.md](R2/MIRROR.md) — clone or host your own bucket
+- [R2/MIRROR.md](R2/MIRROR.md) — clone or host your own bucket + daily sync secrets
 - [R2/ADVANCED.md](R2/ADVANCED.md) — extend records or add a REST Worker
 
 Change `METADATA_CDN` at the top of `Card Importer.lua` to point at your mirror.
+
+---
+
+## Daily token updates (maintainers)
+
+Workflow: [`.github/workflows/r2-token-sync.yml`](.github/workflows/r2-token-sync.yml)
+
+- **Schedule:** daily 06:00 UTC (+ manual **Run workflow**)
+- **Does:** download Scryfall `default_cards` JSONL → rebuild token shards / defaults → merge token card records into R2 → smoke-check the public CDN
+- **Covers:** new tokens, DFC token faces (e.g. Incubator), parent→token links from Scryfall `all_parts`
+- **Failsafes:** skip if bulk unchanged; refuse publish on empty/regressed counts; never wipe remote token prefixes first; merge card shards so seed cards are not deleted
+
+Required secrets (repo → Settings → Secrets → Actions): `CLOUDFLARE_API_TOKEN` (or R2 S3 keys), `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL`. Details in [R2/MIRROR.md](R2/MIRROR.md).
+
+Players and TTS tables do **not** need these secrets.
 
 ---
 
@@ -57,7 +85,7 @@ Change `METADATA_CDN` at the top of `Card Importer.lua` to point at your mirror.
 
 ### Spawn cards
 
-Default mode — just type a card name or query after `Importer`.
+Default mode — type a card name or query after `Importer` (or `Scryfall`).
 
 ```
 Importer Lightning Bolt
@@ -119,8 +147,11 @@ Importer token debug
 
 | Command | Does |
 |---------|------|
-| `token` | Spawns related tokens/emblems for the hovered card |
+| `token` | Spawns related tokens/emblems for the hovered card (CDN `all_parts` / parent shards) |
 | `token debug` | Prints how token lookup resolved (for troubleshooting) |
+
+**v6.2+:** Double-faced tokens (e.g. Incubator // Phyrexian) spawn with TTS `States[2]` for the back face.  
+**v6.3:** If Scryfall has not linked tokens yet, the script refuses wrong fuzzy oracle matches and tells you to wait for the CDN refresh.
 
 ---
 
@@ -193,16 +224,29 @@ Most commands are processed one at a time (FIFO).
 
 ---
 
-## Files
+## Repository layout
 
-| File | Purpose |
+| Path | Purpose |
 |------|---------|
-| `Card Importer.lua` | Paste into your TTS object |
+| [`Card Importer.lua`](Card%20Importer.lua) | Paste into your TTS object (v6.3) |
+| [`R2/`](R2/) | Metadata CDN build, publish, verify tooling |
+| [`.github/workflows/r2-token-sync.yml`](.github/workflows/r2-token-sync.yml) | Daily online token sync |
 | `LICENSE` | MIT |
 | `README.md` | This file |
+
+---
+
+## Security
+
+- **Do not commit** `.env`, API tokens, or R2 access keys.
+- Publishing credentials belong in GitHub Actions secrets only.
+- The public CDN URL and GitHub username are intentional (clients need the CDN host).
+- Optional local scripts under `R2/scripts/*-local.ps1` are for maintainer debugging only — daily sync does not use your PC.
+
+---
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
 
-*Magic: The Gathering is a trademark of Wizards of the Coast. Scryfall is not affiliated with this project.*
+*Magic: The Gathering is a trademark of Wizards of the Coast. Scryfall is not affiliated with this project. Card data for the metadata index is derived from [Scryfall](https://scryfall.com) bulk data at build time only.*

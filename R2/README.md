@@ -51,7 +51,9 @@ Workflow: [`.github/workflows/r2-token-sync.yml`](../.github/workflows/r2-token-
 - Fail-closed: skips publish if bulk unchanged; refuses publish on empty/regressed counts
 - Does not change Card Importer.lua
 
-Required GitHub secrets — see [MIRROR.md](MIRROR.md#daily-token-sync-secrets).
+Required GitHub secrets — see [MIRROR.md](MIRROR.md#daily-token-sync-primary-github-actions).
+
+This runs on **GitHub-hosted runners**. Your PC is not part of the daily path.
 
 ---
 
