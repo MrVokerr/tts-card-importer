@@ -21,6 +21,7 @@ import {
 import { countShardMapKeys } from '../lib/token-sync-guards.js';
 import { ensureBulkFile, iterateBulkCards } from '../lib/fetch-bulk.js';
 import { isTokenLike, partIsTokenOrEmblem } from '../lib/token-like.js';
+import { loadPreviousDefaults, unionUuidLists } from '../lib/image-routing.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -33,6 +34,7 @@ function parseArgs(argv) {
     baseUrl: 'https://pub-6c935b50ab2c43f291df08b7f566585b.r2.dev',
     imageCdn: 'https://img.klrmngr.com',
     writeSyncState: true,
+    previousDefaults: null,
   };
   for (const arg of argv) {
     if (arg === '--fetch') opts.fetch = true;
@@ -40,6 +42,7 @@ function parseArgs(argv) {
     else if (arg.startsWith('--out=')) opts.out = arg.split('=')[1];
     else if (arg.startsWith('--base-url=')) opts.baseUrl = arg.split('=')[1];
     else if (arg.startsWith('--image-cdn=')) opts.imageCdn = arg.split('=')[1];
+    else if (arg.startsWith('--previous-defaults=')) opts.previousDefaults = arg.split('=')[1];
     else if (arg === '--no-sync-state') opts.writeSyncState = false;
   }
   if (!opts.fetch && !fs.existsSync(opts.input)) {
@@ -135,12 +138,24 @@ async function main() {
   if (scanned === 0) throw new Error('Bulk scan produced zero cards');
   if (tokenLikeCount === 0) throw new Error('No token-like cards found in bulk');
 
+  const previousDefaultsRef =
+    opts.previousDefaults ||
+    `${String(opts.baseUrl).replace(/\/$/, '')}/index/token-cdn-defaults.json`;
+  const previousDefaults = await loadPreviousDefaults(previousDefaultsRef);
+  const preservedKaiMiss = previousDefaults?.kaiMissUuids || [];
+  const preservedR2Fallback = previousDefaults?.r2FallbackUuids || [];
+  if (preservedKaiMiss.length || preservedR2Fallback.length) {
+    console.log(
+      `Preserving image routing lists: kaiMiss=${preservedKaiMiss.length} r2Fallback=${preservedR2Fallback.length}`
+    );
+  }
+
   const defaults = {
     generatedAt: new Date().toISOString(),
     imageCdn: opts.imageCdn,
     r2ImageCdn: opts.baseUrl,
-    r2FallbackUuids: [],
-    kaiMissUuids: [],
+    r2FallbackUuids: unionUuidLists(preservedR2Fallback),
+    kaiMissUuids: unionUuidLists(preservedKaiMiss),
     byName: defaultsByName,
   };
 

@@ -15,6 +15,7 @@ import {
 import { mergeShardRecords, writeTokenCardRecords } from '../lib/write-shards.js';
 import { iterateBulkCards, JSON_ARRAY_RETIRE_DATE } from '../lib/fetch-bulk.js';
 import { parentNameShardKey, tokenShardKey } from '../lib/shard-keys.js';
+import { unionUuidLists } from '../lib/image-routing.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -168,6 +169,20 @@ async function main() {
   assert(merged['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'].name === 'Updated', 'local shard merge updates record');
 
   assert(typeof JSON_ARRAY_RETIRE_DATE === 'string', `retire date constant set (${JSON_ARRAY_RETIRE_DATE})`);
+
+  const mergedUuids = unionUuidLists(
+    ['AAAA-1111', 'bbbb-2222'],
+    ['bbbb-2222', 'cccc-3333'],
+    null,
+    ['']
+  );
+  assert(
+    mergedUuids.length === 3 &&
+      mergedUuids[0] === 'aaaa-1111' &&
+      mergedUuids.includes('bbbb-2222') &&
+      mergedUuids.includes('cccc-3333'),
+    'unionUuidLists lowercases, dedupes, and sorts'
+  );
 
   fs.rmSync(out, { recursive: true, force: true });
 

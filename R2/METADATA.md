@@ -125,7 +125,9 @@ See [schema/card-record.schema.json](schema/card-record.schema.json) and [schema
 - `imageCdn` — primary image host for tokens
 - `r2ImageCdn` — fallback image base (`/cards/{uuid}.jpg`)
 - `byName` — map normalized token name → default UUID
-- `r2FallbackUuids`, `kaiMissUuids` — per-UUID image routing overrides
+- `r2FallbackUuids`, `kaiMissUuids` — per-UUID image routing overrides (populated by `npm run cache:token-images`; preserved across daily token metadata rebuilds)
+
+Token image fallbacks: Scryfall `large.jpg` → R2 `/cards/{uuid}.jpg` with long Cache-Control. See [MIRROR.md](MIRROR.md#token-image-fallbacks-cardsuuidjpg).
 
 ---
 

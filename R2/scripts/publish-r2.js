@@ -117,6 +117,9 @@ function collectUploadFiles(outDir) {
 
 function contentTypeFor(key) {
   if (key.endsWith('.json')) return 'application/json; charset=utf-8';
+  if (key.endsWith('.jpg') || key.endsWith('.jpeg')) return 'image/jpeg';
+  if (key.endsWith('.png')) return 'image/png';
+  if (key.endsWith('.webp')) return 'image/webp';
   return 'application/octet-stream';
 }
 

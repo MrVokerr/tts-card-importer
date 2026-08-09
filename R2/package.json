@@ -13,6 +13,8 @@
     "build:all": "npm run build:fetch && npm run build:tokens:local",
     "sync:tokens": "node scripts/sync-tokens.js",
     "sync:tokens:dry": "node scripts/sync-tokens.js --dry-run",
+    "cache:token-images": "node scripts/cache-token-images.js",
+    "cache:token-images:dry": "node scripts/cache-token-images.js --dry-run",
     "publish:r2": "node scripts/publish-r2.js",
     "verify": "node scripts/verify.js",
     "test": "node scripts/qa-selftest.js",

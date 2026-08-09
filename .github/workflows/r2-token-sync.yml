@@ -15,6 +15,19 @@ on:
         options:
           - 'false'
           - 'true'
+      cache_images:
+        description: 'Also cache Kai-missing token JPGs (e.g. thob) to R2 /cards/{uuid}.jpg'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      image_sets:
+        description: 'Comma-separated Scryfall set codes for token image cache'
+        required: false
+        default: 'thob'
+        type: string
 
 jobs:
   sync-tokens:
@@ -52,6 +65,25 @@ jobs:
             EXTRA="--force"
           fi
           node scripts/sync-tokens.js $EXTRA
+
+      - name: Cache Kai-missing token images
+        # Scheduled runs always cache; workflow_dispatch can disable via cache_images=false
+        if: success() && (github.event_name == 'schedule' || github.event.inputs.cache_images != 'false')
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+        run: |
+          SETS="${{ github.event.inputs.image_sets }}"
+          if [ -z "$SETS" ]; then SETS="thob"; fi
+          EXTRA=""
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            EXTRA="--force"
+          fi
+          node scripts/cache-token-images.js --sets="$SETS" $EXTRA
 
       - name: Verify public CDN
         if: success()
