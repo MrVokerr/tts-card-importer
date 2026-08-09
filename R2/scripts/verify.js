@@ -36,6 +36,10 @@ async function main() {
 
   const nameKey = parentNameShardKey('Lightning Bolt');
   assert(nameKey === '3a', `Lightning Bolt name shard expected 3a, got ${nameKey}`);
+  assert(
+    parentNameShardKey('dáin ironfoot') === 'd1',
+    `dáin ironfoot name shard expected d1 (charCodeAt), got ${parentNameShardKey('dáin ironfoot')}`
+  );
 
   const norm = normalizeIndexName('Lightning Bolt');
   const nameShard = await fetchJson(`${base}/index/cards/names-by-name/shards/${nameKey}.json`);

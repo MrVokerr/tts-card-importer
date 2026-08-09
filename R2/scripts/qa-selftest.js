@@ -91,6 +91,7 @@ async function main() {
   console.log('=== R2 QA self-test ===');
 
   assert(parentNameShardKey('Lightning Bolt') === '3a', 'Lightning Bolt shard key is 3a');
+  assert(parentNameShardKey('dáin ironfoot') === 'd1', 'dáin ironfoot shard key is d1 (UTF-16 code units)');
   assert(tokenShardKey('c5229eb0-9356-43a6-9b1b-6366f3c1e405') === 'c5', 'UUID shard key first 2 hex');
 
   assert(isTokenLike({ layout: 'double_faced_token', type_line: 'Token' }), 'DFC token layout detected');

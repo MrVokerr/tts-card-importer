@@ -55,13 +55,13 @@ Example:
 shard = uuid.substring(0, 2).toLowerCase()
 ```
 
-**Name / set-collector shards** (`parentNameShardKey` in Lua):
+**Name / set-collector shards** (`parentNameShardKey` in Lua / `R2/lib/shard-keys.js`):
 
 1. Normalize: lowercase, trim, strip text after first newline
-2. djb2: `h = 5381`; for each byte: `h = (h * 33 + byte) % 2^32`
+2. djb2 over **UTF-16 code units** (JS `charCodeAt` / Lua UTF-8→code-unit decode): `h = 5381`; for each unit: `h = (h * 33 + unit) % 2^32`
 3. `shard = sprintf("%02x", h % 256)`
 
-**Verify:** `Lightning Bolt` → shard `3a`
+**Verify:** `Lightning Bolt` → shard `3a`. `dáin ironfoot` → shard `d1` (not UTF-8-byte hash `f4`).
 
 ### Name normalization
 
