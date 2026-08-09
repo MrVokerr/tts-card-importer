@@ -1,7 +1,9 @@
 import { normalizeIndexName } from './normalize.js';
 
 /**
- * Match Card Importer.lua parentNameShardKey (lines ~148-156).
+ * Match Card Importer.lua parentNameShardKey.
+ * djb2 over UTF-16 code units (String.charCodeAt), not UTF-8 bytes —
+ * so accented names like "dáin ironfoot" hash to the same shard in JS and Lua.
  */
 export function parentNameShardKey(input) {
   const norm = normalizeIndexName(input);

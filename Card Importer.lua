@@ -3,7 +3,7 @@
 -- Metadata:   https://pub-6c935b50ab2c43f291df08b7f566585b.r2.dev (Vokerr public index)
 -- Mirror hosts: see R2/METADATA.md and R2/MIRROR.md (set METADATA_CDN below).
 -- CDN-only at runtime — no Scryfall API.
-mod_name,version='Card Importer','6.4'
+mod_name,version='Card Importer','6.5'
 self.setName('[854FD9]'..mod_name..' [49D54F]'..version)
 textItems={}
 newText=setmetatable({
@@ -146,12 +146,47 @@ function tokenChatTable(p, mode, full)
   }
 end
 
+-- Match R2/lib/shard-keys.js parentNameShardKey: djb2 over UTF-16 code units
+-- (JS String.charCodeAt), NOT raw UTF-8 bytes. Accented names like "Dáin" must
+-- land on the same shard the CDN build wrote (e.g. dáin ironfoot → d1).
+function utf16CodeUnitsFromUtf8(s)
+  local units = {}
+  local i, n = 1, #s
+  while i <= n do
+    local c = s:byte(i)
+    if not c then break end
+    if c < 128 then
+      units[#units + 1] = c
+      i = i + 1
+    elseif c >= 194 and c <= 223 and i + 1 <= n then
+      local c2 = s:byte(i + 1)
+      units[#units + 1] = (c - 192) * 64 + (c2 - 128)
+      i = i + 2
+    elseif c >= 224 and c <= 239 and i + 2 <= n then
+      local c2, c3 = s:byte(i + 1), s:byte(i + 2)
+      units[#units + 1] = (c - 224) * 4096 + (c2 - 128) * 64 + (c3 - 128)
+      i = i + 3
+    elseif c >= 240 and c <= 244 and i + 3 <= n then
+      local c2, c3, c4 = s:byte(i + 1), s:byte(i + 2), s:byte(i + 3)
+      local cp = (c - 240) * 262144 + (c2 - 128) * 4096 + (c3 - 128) * 64 + (c4 - 128)
+      local v = cp - 0x10000
+      units[#units + 1] = 0xD800 + math.floor(v / 0x400)
+      units[#units + 1] = 0xDC00 + (v % 0x400)
+      i = i + 4
+    else
+      units[#units + 1] = c
+      i = i + 1
+    end
+  end
+  return units
+end
+
 function parentNameShardKey(cardName)
   local norm = normalizeIndexName(cardName)
   if not norm or norm == '' then return '00' end
   local h = 5381
-  for i = 1, #norm do
-    h = (h * 33 + norm:byte(i)) % 4294967296
+  for _, code in ipairs(utf16CodeUnitsFromUtf8(norm)) do
+    h = (h * 33 + code) % 4294967296
   end
   return string.format('%02x', h % 256)
 end
@@ -528,19 +563,20 @@ end
 
 function faceUrlFromUuid(uuid, imageCdn)
   if not uuid or uuid == '' then return '' end
+  local id = tostring(uuid):lower()
   if imageCdn and imageCdn ~= '' and imageCdn ~= IMAGE_CDN then
-    return imageCdn..'/cards/'..uuid..'.jpg'
+    return imageCdn..'/cards/'..id..'.jpg'
   end
-  if tokenKaiMisses[uuid] then
-    local r2 = r2ImageFromUuid(uuid)
+  if tokenKaiMisses[id] then
+    local r2 = r2ImageFromUuid(id)
     if r2 ~= '' then return r2 end
-    return cdnImageFromUuid(uuid, 'front')
+    return cdnImageFromUuid(id, 'front')
   end
-  if tokenR2Fallbacks[uuid] then
-    local r2 = r2ImageFromUuid(uuid)
+  if tokenR2Fallbacks[id] then
+    local r2 = r2ImageFromUuid(id)
     if r2 ~= '' then return r2 end
   end
-  return cdnImageFromUuid(uuid, 'front')
+  return cdnImageFromUuid(id, 'front')
 end
 
 function cachedImageUri(imageUris, uuid, side, qual)
@@ -743,8 +779,14 @@ function fetchRelatedTokensByOracleId(oracleId, callback, fast)
   fetchRelatedTokens(nil, oracleId, callback, fast)
 end
 
-function loadTokenDefaults(callback)
-  if tokenDefaultsByName then callback(tokenDefaultsByName) return end
+function loadTokenDefaults(callback, forceReload)
+  if tokenDefaultsByName and not forceReload then
+    callback(tokenDefaultsByName)
+    return
+  end
+  if forceReload then
+    tokenDefaultsByName = nil
+  end
   table.insert(tokenDefaultsWaiters, callback)
   if tokenDefaultsLoading then return end
   tokenDefaultsLoading = true
@@ -760,12 +802,12 @@ function loadTokenDefaults(callback)
     tokenKaiMisses = {}
     if parsed and parsed.r2FallbackUuids then
       for _, uid in ipairs(parsed.r2FallbackUuids) do
-        tokenR2Fallbacks[uid] = true
+        tokenR2Fallbacks[tostring(uid):lower()] = true
       end
     end
     if parsed and parsed.kaiMissUuids then
       for _, uid in ipairs(parsed.kaiMissUuids) do
-        tokenKaiMisses[uid] = true
+        tokenKaiMisses[tostring(uid):lower()] = true
       end
     end
     for _, cb in ipairs(tokenDefaultsWaiters) do cb(tokenDefaultsByName) end
@@ -1543,9 +1585,10 @@ function buildTokenCardDat(n, uuid, record, back)
 end
 
 function spawnTokenDeck(qTbl, tokens)
+  -- Force-refresh defaults so kaiMissUuids / R2 fallbacks stay current after CDN updates.
   loadTokenDefaults(function()
     if #tokens == 0 then
-      Player[qTbl.color].broadcast('No related tokens for '..qTbl.name, {1,0.5,0})
+      Player[qTbl.color].broadcast('No related tokens for '..tostring(qTbl.name or 'card'), {1,0.5,0})
       if not qTbl.standalone then endLoop() end
       return
     end
@@ -1586,7 +1629,7 @@ function spawnTokenDeck(qTbl, tokens)
       end
       if not qTbl.standalone then endLoop() end
     end)
-  end)
+  end, true)
 end
 
 function spawnRelatedTokens(qTbl, related, parentUuid)
