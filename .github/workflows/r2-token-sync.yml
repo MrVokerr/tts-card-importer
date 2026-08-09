@@ -5,6 +5,11 @@ on:
   schedule:
     # Daily 06:00 UTC
     - cron: '0 6 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'R2/**'
+      - '.github/workflows/r2-token-sync.yml'
   workflow_dispatch:
     inputs:
       force:
@@ -67,8 +72,13 @@ jobs:
           node scripts/sync-tokens.js $EXTRA
 
       - name: Cache Kai-missing token images
-        # Scheduled runs always cache; workflow_dispatch can disable via cache_images=false
-        if: success() && (github.event_name == 'schedule' || github.event.inputs.cache_images != 'false')
+        # schedule/push always cache; workflow_dispatch can disable via cache_images=false
+        if: >-
+          success() && (
+            github.event_name == 'schedule' ||
+            github.event_name == 'push' ||
+            github.event.inputs.cache_images != 'false'
+          )
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
