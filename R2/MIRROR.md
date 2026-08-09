@@ -105,6 +105,30 @@ To fully self-host images:
 2. Set `IMAGE_CDN` to your image host, and/or
 3. Set `imageCdn` on individual records / `token-cdn-defaults.json`
 
+#### Token image fallbacks (`cards/{uuid}.jpg`)
+
+When Kai is missing a token face (common for brand-new token sets), cache Scryfall **`large.jpg`** (672×936, same class as Scryfall `display` WebP) onto the metadata R2 bucket. TTS FaceURLs must end in `.jpg`, so do not serve raw `display.webp` under a `.jpg` key.
+
+```bash
+cd R2
+# Dry run (no R2 writes; still needs network for Scryfall/Kai checks)
+npm run cache:token-images:dry -- --sets=thob
+
+# Upload Kai-missing token JPGs + merge kaiMissUuids / r2FallbackUuids
+npm run cache:token-images -- --sets=thob
+```
+
+Behavior:
+
+- Skip if R2 `cards/{uuid}.jpg` already exists (re-run safe)
+- Skip if Kai already has `/large/front/…/{uuid}.jpg` (unless `--force`)
+- ~2s delay between Scryfall downloads (`--delay-ms=2000`)
+- Long-lived `Cache-Control` on image objects (`public, max-age=31536000, immutable`)
+- Filters out art series / digital-only / MTGO-only promos
+- Daily **R2 token sync** Action also runs this for `thob` after metadata publish (`cache_images` / `image_sets` workflow inputs)
+
+`build-token-index` preserves remote `kaiMissUuids` / `r2FallbackUuids` so metadata sync does not wipe image routing.
+
 ---
 
 ## Verify your mirror

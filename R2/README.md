@@ -33,6 +33,8 @@ npm run build:fetch            # JSONL → seed card index → dist/
 npm run build:tokens           # JSONL → token shards + token card records → dist/
 npm run sync:tokens:dry        # build + sanity gates, no R2 write
 npm run sync:tokens            # build + publish + smoke
+npm run cache:token-images:dry # list Kai-missing token JPGs (e.g. thob), no R2 write
+npm run cache:token-images     # download large.jpg → R2 /cards/{uuid}.jpg + kaiMissUuids
 ```
 
 Copy `config/seeds.example.json` → `config/seeds.json` to customize seed-mode builds.

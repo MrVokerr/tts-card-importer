@@ -88,6 +88,31 @@ async function main() {
     }
   }
 
+  // Hobbit token image canary: Dáin → Axe metadata + R2 JPG when listed in kaiMissUuids
+  const dainId = '7112e460-9160-4535-ad94-93f1f4ac04cf';
+  const axeId = defaults.byName?.axe || '6f7a3999-e341-43bb-9b8f-6c1a05b98906';
+  try {
+    const parentShard = await fetchJson(
+      `${base}/index/tokens/shards/parent/${tokenShardKey(dainId)}.json`
+    );
+    const related = parentShard[dainId] || [];
+    const hasAxe = related.some((t) => (t.uuid || t) === axeId);
+    if (hasAxe) console.log('Token link canary: Dáin → Axe parent shard OK');
+    else console.warn('WARN: Dáin parent shard missing Axe link');
+  } catch (err) {
+    console.warn(`WARN: Dáin parent shard check failed: ${err.message}`);
+  }
+
+  const kaiMiss = Array.isArray(defaults.kaiMissUuids) ? defaults.kaiMissUuids : [];
+  if (kaiMiss.includes(axeId)) {
+    const imgUrl = `${base}/cards/${axeId}.jpg`;
+    const imgRes = await fetch(imgUrl, { headers: { 'User-Agent': 'tts-card-metadata-verify' } });
+    assert(imgRes.ok, `Axe R2 fallback missing: ${imgUrl} → ${imgRes.status}`);
+    console.log('Token image canary: Axe R2 JPG OK');
+  } else {
+    console.log('Token image canary: Axe not in kaiMissUuids yet (run cache:token-images)');
+  }
+
   console.log('OK — shard keys and sample records match live CDN');
 }
 
