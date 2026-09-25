@@ -16,6 +16,25 @@ import { mergeShardRecords, writeTokenCardRecords } from '../lib/write-shards.js
 import { iterateBulkCards, JSON_ARRAY_RETIRE_DATE } from '../lib/fetch-bulk.js';
 import { parentNameShardKey, tokenShardKey } from '../lib/shard-keys.js';
 import { unionUuidLists } from '../lib/image-routing.js';
+import {
+  LOOKAHEAD_DAYS,
+  LOOKBACK_DAYS,
+  MAX_CANDIDATE_CARDS,
+  MAX_DISCOVERED_SETS,
+  assertCandidateCardCap,
+  assertValidJpegBuffer,
+  dfcNoKaiCanonicalMessage,
+  discoveryWindow,
+  hasJpegMagic,
+  isDoubleFacedToken,
+  parseSetCodes,
+  partitionTokenImageCards,
+  releasedAtInWindow,
+  resolveDiscoverySetCodes,
+  selectTokenSetCodes,
+  shouldSkipTokenImageCard,
+  unionSetCodes,
+} from '../lib/token-image-discovery.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -183,6 +202,149 @@ async function main() {
       mergedUuids.includes('bbbb-2222') &&
       mergedUuids.includes('cccc-3333'),
     'unionUuidLists lowercases, dedupes, and sorts'
+  );
+
+  // --- token-image-discovery ---
+  assert(
+    JSON.stringify(parseSetCodes(' TFRA, tfrc,,TFRA ')) === JSON.stringify(['tfra', 'tfrc']),
+    'parseSetCodes lowercases and dedupes'
+  );
+  assert(
+    JSON.stringify(unionSetCodes(['thob'], ['tfra', 'THOB'], null)) ===
+      JSON.stringify(['tfra', 'thob']),
+    'unionSetCodes sorts and dedupes'
+  );
+
+  const now = new Date('2026-09-24T12:00:00Z');
+  const window = discoveryWindow(now, LOOKBACK_DAYS, LOOKAHEAD_DAYS);
+  assert(
+    releasedAtInWindow('2026-09-01', window) &&
+      releasedAtInWindow('2026-10-02', window) &&
+      !releasedAtInWindow('2026-01-01', window) &&
+      !releasedAtInWindow('2027-06-01', window),
+    `discovery window ${LOOKBACK_DAYS}d/${LOOKAHEAD_DAYS}d bounds`
+  );
+
+  const fakeSets = [
+    { code: 'tfra', set_type: 'token', digital: false, released_at: '2026-10-02' },
+    { code: 'tfrc', set_type: 'token', digital: false, released_at: '2026-10-02' },
+    { code: 'tfdc', set_type: 'token', digital: false, released_at: '2026-10-02' },
+    { code: 'thob', set_type: 'token', digital: false, released_at: '2023-11-03' }, // old
+    { code: 'mtga', set_type: 'token', digital: true, released_at: '2026-10-02' },
+    { code: 'blb', set_type: 'expansion', digital: false, released_at: '2026-10-02' },
+  ];
+  const selected = selectTokenSetCodes(fakeSets, { now });
+  assert(
+    selected.length === 3 &&
+      selected.includes('tfra') &&
+      selected.includes('tfrc') &&
+      selected.includes('tfdc') &&
+      !selected.includes('thob') &&
+      !selected.includes('mtga'),
+    'selectTokenSetCodes keeps non-digital token sets in window'
+  );
+
+  const resolved = resolveDiscoverySetCodes(fakeSets, ['thob', 'TFRA'], { now });
+  assert(
+    resolved.auto.length === 3 &&
+      resolved.manual.includes('thob') &&
+      resolved.sets.includes('thob') &&
+      resolved.sets.includes('tfra'),
+    'resolveDiscoverySetCodes unions manual extras with auto'
+  );
+
+  let capThrew = false;
+  try {
+    resolveDiscoverySetCodes(fakeSets, [], { now, maxDiscoveredSets: 2 });
+  } catch (err) {
+    capThrew = /exceeds cap 2/.test(err.message);
+  }
+  assert(capThrew, 'resolveDiscoverySetCodes fail-closed on set cap');
+
+  capThrew = false;
+  try {
+    assertCandidateCardCap(MAX_CANDIDATE_CARDS + 1);
+  } catch (err) {
+    capThrew = /exceeds cap/.test(err.message);
+  }
+  assert(capThrew, 'assertCandidateCardCap fail-closed');
+  assert(MAX_DISCOVERED_SETS >= 1 && MAX_CANDIDATE_CARDS >= 1, 'caps are positive');
+
+  const jpegOk = Buffer.from([0xff, 0xd8, 0xff, 0xe0, ...Buffer.alloc(1200, 1)]);
+  assert(hasJpegMagic(jpegOk), 'hasJpegMagic detects FF D8 FF');
+  assert(!hasJpegMagic(Buffer.from([0x89, 0x50, 0x4e, 0x47])), 'hasJpegMagic rejects PNG');
+  assertValidJpegBuffer(jpegOk, 'image/jpeg');
+  let jpegThrew = false;
+  try {
+    assertValidJpegBuffer(Buffer.from([0xff, 0xd8, 0xff]), 'image/jpeg');
+  } catch {
+    jpegThrew = true;
+  }
+  assert(jpegThrew, 'assertValidJpegBuffer rejects tiny payload');
+  jpegThrew = false;
+  try {
+    assertValidJpegBuffer(Buffer.from([0x00, 0x01, ...Buffer.alloc(1200)]), 'image/jpeg');
+  } catch {
+    jpegThrew = true;
+  }
+  assert(jpegThrew, 'assertValidJpegBuffer rejects bad magic');
+
+  assert(isDoubleFacedToken({ layout: 'double_faced_token', type_line: 'Token' }), 'DFC layout');
+  assert(
+    isDoubleFacedToken({
+      layout: 'token',
+      type_line: 'Token Artifact',
+      card_faces: [{ name: 'A' }, { name: 'B' }],
+    }),
+    'DFC via card_faces + token-like'
+  );
+  assert(!isDoubleFacedToken({ layout: 'token', type_line: 'Token Artifact — Treasure' }), 'single-faced token');
+
+  const parts = partitionTokenImageCards([
+    {
+      id: '11111111-1111-1111-1111-111111111111',
+      layout: 'token',
+      type_line: 'Token Artifact — Treasure',
+      digital: false,
+      set: 'tfra',
+    },
+    {
+      id: '11111111-1111-1111-1111-111111111111', // dup
+      layout: 'token',
+      type_line: 'Token Artifact — Treasure',
+      digital: false,
+    },
+    {
+      id: '22222222-2222-2222-2222-222222222222',
+      layout: 'double_faced_token',
+      type_line: 'Token Artifact // Token Creature',
+      digital: false,
+      card_faces: [{ name: 'Incubator' }, { name: 'Phyrexian' }],
+    },
+    { id: '33333333-3333-3333-3333-333333333333', layout: 'art_series', type_line: 'Card', digital: false },
+    { id: '44444444-4444-4444-4444-444444444444', layout: 'token', type_line: 'Token', digital: true },
+  ]);
+  assert(
+    parts.singleFaced.length === 1 &&
+      parts.doubleFaced.length === 1 &&
+      parts.singleFaced[0].id.startsWith('1111') &&
+      parts.doubleFaced[0].id.startsWith('2222'),
+    'partitionTokenImageCards splits, dedupes, skips art/digital'
+  );
+  assert(shouldSkipTokenImageCard({ layout: 'normal', type_line: 'Creature' }), 'skip non-token');
+
+  const dfcMsg = dfcNoKaiCanonicalMessage(
+    {
+      name: 'Incubator // Phyrexian',
+      set: 'tfdc',
+      collector_number: '8',
+      id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    },
+    ['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa']
+  );
+  assert(
+    /6\.6 cannot use R2 DFC/.test(dfcMsg) && /tfdc #8/.test(dfcMsg),
+    'dfcNoKaiCanonicalMessage is actionable'
   );
 
   fs.rmSync(out, { recursive: true, force: true });

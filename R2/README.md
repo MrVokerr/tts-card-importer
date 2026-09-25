@@ -33,8 +33,29 @@ npm run build:fetch            # JSONL → seed card index → dist/
 npm run build:tokens           # JSONL → token shards + token card records → dist/
 npm run sync:tokens:dry        # build + sanity gates, no R2 write
 npm run sync:tokens            # build + publish + smoke
-npm run cache:token-images:dry # list Kai-missing token JPGs (e.g. thob), no R2 write
+npm run cache:token-images:dry # auto-discover recent token sets; list Kai-missing JPGs (no R2 write)
 npm run cache:token-images     # download large.jpg → R2 /cards/{uuid}.jpg + kaiMissUuids
+```
+
+### Token image policy
+
+Daily **R2 token sync** auto-discovers non-digital Scryfall **token** sets released within **30 days back / 120 days ahead**, unions optional `image_sets` workflow extras, and caches Kai-missing single-faced token/emblem JPEGs to `cards/{uuid}.jpg`.
+
+- Caps: max 40 discovered sets and 2000 candidate cards per run (fail-closed).
+- Upload only after JPEG MIME + magic bytes + minimum size checks; public CDN must return `200 image/jpeg` before a UUID is added to routing.
+- Merged `token-cdn-defaults.json` is published only after every eligible image succeeds (no half-published routing).
+- Double-faced tokens are **not** R2-fallbackable in Card Importer 6.6 — the job verifies a Kai-backed two-sided canonical printing exists and fails with an actionable message otherwise.
+- Existing `kaiMissUuids` / `r2FallbackUuids` are preserved across rebuilds via `unionUuidLists`.
+
+```bash
+# Auto-discovery only
+npm run cache:token-images
+
+# Union manual extras (e.g. re-audit an older set)
+npm run cache:token-images -- --sets=thob
+
+# Manual-only (skip discovery)
+npm run cache:token-images -- --no-auto --sets=tfra,tfrc,tfdc
 ```
 
 Copy `config/seeds.example.json` → `config/seeds.json` to customize seed-mode builds.

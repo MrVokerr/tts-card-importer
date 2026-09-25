@@ -21,7 +21,7 @@ on:
           - 'false'
           - 'true'
       cache_images:
-        description: 'Also cache Kai-missing token JPGs (e.g. thob) to R2 /cards/{uuid}.jpg'
+        description: 'Also cache Kai-missing token JPGs to R2 /cards/{uuid}.jpg (auto-discovers recent token sets)'
         required: false
         default: 'true'
         type: choice
@@ -29,9 +29,9 @@ on:
           - 'true'
           - 'false'
       image_sets:
-        description: 'Comma-separated Scryfall set codes for token image cache'
+        description: 'Optional extra Scryfall set codes (comma-separated) unioned with auto-discovery; leave empty for auto-only'
         required: false
-        default: 'thob'
+        default: ''
         type: string
 
 jobs:
@@ -87,18 +87,23 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
         run: |
+          # Auto-discover token sets in window; image_sets are optional extras (not a hard-coded default).
           SETS="${{ github.event.inputs.image_sets }}"
-          if [ -z "$SETS" ]; then SETS="thob"; fi
           EXTRA=""
-          if [ "${{ github.event.inputs.force }}" = "true" ]; then
-            EXTRA="--force"
+          if [ -n "$SETS" ]; then
+            EXTRA="--sets=$SETS"
           fi
-          node scripts/cache-token-images.js --sets="$SETS" $EXTRA
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            EXTRA="$EXTRA --force"
+          fi
+          node scripts/cache-token-images.js $EXTRA
 
       - name: Verify public CDN
         if: success()
         env:
           R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
         run: |
+          # Fallback is the public R2 CDN (pub-*.r2.dev), not a credential.
+          # Prefer R2_PUBLIC_BASE_URL when set (custom domain / production CDN).
           BASE="${R2_PUBLIC_BASE_URL:-https://pub-6c935b50ab2c43f291df08b7f566585b.r2.dev}"
           npm run verify -- --base-url="$BASE"

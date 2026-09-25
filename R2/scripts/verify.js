@@ -108,13 +108,44 @@ async function main() {
   }
 
   const kaiMiss = Array.isArray(defaults.kaiMissUuids) ? defaults.kaiMissUuids : [];
-  if (kaiMiss.includes(axeId)) {
-    const imgUrl = `${base}/cards/${axeId}.jpg`;
-    const imgRes = await fetch(imgUrl, { headers: { 'User-Agent': 'tts-card-metadata-verify' } });
-    assert(imgRes.ok, `Axe R2 fallback missing: ${imgUrl} → ${imgRes.status}`);
-    console.log('Token image canary: Axe R2 JPG OK');
+  const r2Fallback = Array.isArray(defaults.r2FallbackUuids) ? defaults.r2FallbackUuids : [];
+
+  // Routing lists must stay consistent (same UUID membership)
+  const missSet = new Set(kaiMiss.map((u) => String(u).toLowerCase()));
+  const r2Set = new Set(r2Fallback.map((u) => String(u).toLowerCase()));
+  const onlyMiss = [...missSet].filter((u) => !r2Set.has(u));
+  const onlyR2 = [...r2Set].filter((u) => !missSet.has(u));
+  assert(
+    onlyMiss.length === 0 && onlyR2.length === 0,
+    `kaiMissUuids / r2FallbackUuids mismatch: onlyMiss=${onlyMiss.slice(0, 5).join(',')} onlyR2=${onlyR2.slice(0, 5).join(',')}`
+  );
+
+  // HEAD (GET fallback) every routed fallback UUID — require 200 image/jpeg
+  const routeIds = [...missSet];
+  console.log(`Checking ${routeIds.length} R2 fallback image(s)...`);
+  const imgUa = { headers: { 'User-Agent': 'tts-card-metadata-verify' } };
+  for (const id of routeIds) {
+    const imgUrl = `${base}/cards/${id}.jpg`;
+    let imgRes = await fetch(imgUrl, { ...imgUa, method: 'HEAD' });
+    if (imgRes.status === 0 || imgRes.status === 403 || imgRes.status === 405) {
+      imgRes = await fetch(imgUrl, imgUa);
+    }
+    assert(imgRes.ok, `R2 fallback missing: ${imgUrl} → ${imgRes.status}`);
+    const ctype = (imgRes.headers.get('content-type') || '').toLowerCase();
+    assert(
+      !ctype || ctype.includes('jpeg') || ctype.includes('jpg') || ctype.includes('octet-stream'),
+      `R2 fallback bad content-type: ${imgUrl} → ${ctype || '(empty)'}`
+    );
+  }
+  if (routeIds.length > 0) {
+    console.log(`Token image routing: ${routeIds.length} public JPG(s) OK`);
   } else {
-    console.log('Token image canary: Axe not in kaiMissUuids yet (run cache:token-images)');
+    console.log('Token image routing: no kaiMiss/r2Fallback UUIDs yet');
+  }
+
+  // Legacy canary log for Axe when present
+  if (missSet.has(axeId)) {
+    console.log('Token image canary: Axe included in routing list');
   }
 
   console.log('OK — shard keys and sample records match live CDN');

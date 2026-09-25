@@ -112,20 +112,26 @@ When Kai is missing a token face (common for brand-new token sets), cache Scryfa
 ```bash
 cd R2
 # Dry run (no R2 writes; still needs network for Scryfall/Kai checks)
-npm run cache:token-images:dry -- --sets=thob
+npm run cache:token-images:dry
 
 # Upload Kai-missing token JPGs + merge kaiMissUuids / r2FallbackUuids
+npm run cache:token-images
+
+# Optional: union specific set codes with auto-discovery
 npm run cache:token-images -- --sets=thob
 ```
 
 Behavior:
 
-- Skip if R2 `cards/{uuid}.jpg` already exists (re-run safe)
+- **Auto-discovery:** non-digital Scryfall `set_type=token` sets in a 30-day lookback / 120-day lookahead window (caps: 40 sets, 2000 cards; fail-closed)
+- Optional `--sets=` extras are unioned with discovery; `--no-auto` disables discovery
+- Skip if public R2 `cards/{uuid}.jpg` is already valid `image/jpeg` (re-run safe)
 - Skip if Kai already has `/large/front/…/{uuid}.jpg` (unless `--force`)
-- ~2s delay between Scryfall downloads (`--delay-ms=2000`)
-- Long-lived `Cache-Control` on image objects (`public, max-age=31536000, immutable`)
-- Filters out art series / digital-only / MTGO-only promos
-- Daily **R2 token sync** Action also runs this for `thob` after metadata publish (`cache_images` / `image_sets` workflow inputs)
+- Download Scryfall `large` JPG; validate MIME + JPEG magic + min size; upload with `Cache-Control: public, max-age=31536000, immutable`
+- Never append a UUID to routing until the public object verifies `200 image/jpeg`; publish merged defaults only after all eligible images succeed
+- DFC tokens: verify a Kai two-sided canonical exists (6.6 cannot use R2 DFC fallback); fail with an actionable message if none
+- Filters out art series / digital-only / MTGO-only promos; `include_extras` on Scryfall search
+- Daily **R2 token sync** Action runs this after metadata publish (`cache_images`; `image_sets` = optional extras, not a hard-coded set)
 
 `build-token-index` preserves remote `kaiMissUuids` / `r2FallbackUuids` so metadata sync does not wipe image routing.
 
