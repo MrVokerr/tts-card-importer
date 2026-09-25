@@ -14,5 +14,111 @@
         "type_line": "Token Artifact Creature — Wurm"
       }
     ]
+  },
+  "56e05b17-aa1d-483d-857c-4cab4f12aa8a": {
+    "parentNames": ["triplicate titan"],
+    "parentPrintings": ["568dd5a6-86f4-4039-87d7-812120c8ab94"],
+    "tokens": [
+      {
+        "uuid": "83d3d765-81ef-42a2-90e1-ba157f0aba76",
+        "alias": "Golem — Flying",
+        "type_line": "Token Artifact Creature — Golem"
+      },
+      {
+        "uuid": "b9e068ea-234a-4fba-8de8-9b7e1b94b361",
+        "alias": "Golem — Vigilance",
+        "type_line": "Token Artifact Creature — Golem"
+      },
+      {
+        "uuid": "609cb9a8-9598-4b3d-a56e-f477871d3ff7",
+        "alias": "Golem — Trample",
+        "type_line": "Token Artifact Creature — Golem"
+      }
+    ]
+  },
+  "df35bf19-4cbf-4624-925d-ceca6bff596e": {
+    "parentNames": ["somberwald beastmaster"],
+    "parentPrintings": ["5a4ba28b-a6c6-4268-8dc2-542d203f91a6"],
+    "tokens": [
+      {
+        "uuid": "62facbb8-1a83-4731-b515-0f7759ee8c3b",
+        "alias": "Beast — 3/3",
+        "type_line": "Token Creature — Beast"
+      },
+      {
+        "uuid": "eb243b20-85e6-4eba-9403-42272975e8a5",
+        "alias": "Beast — 4/4",
+        "type_line": "Token Creature — Beast"
+      },
+      {
+        "uuid": "89b89a55-3ea2-4186-b946-06831bc16169",
+        "alias": "Wolf",
+        "type_line": "Token Creature — Wolf"
+      }
+    ]
+  },
+  "1162c7ff-c0cb-469a-ad3c-322b0981ae1d": {
+    "parentNames": ["mitotic slime"],
+    "parentPrintings": ["8aacf055-e36f-4428-8a3c-f73fa4b4307c"],
+    "tokens": [
+      {
+        "uuid": "6c746fd1-0731-4c6d-9eb8-6048238ce6d1",
+        "alias": "Ooze — 2/2 Death Trigger",
+        "type_line": "Token Creature — Ooze"
+      },
+      {
+        "uuid": "26e205aa-6d29-4067-8b20-f3da72511b21",
+        "alias": "Ooze — 1/1",
+        "type_line": "Token Creature — Ooze"
+      }
+    ]
+  },
+  "7a9fa906-b43e-4d98-b134-5936d3085851": {
+    "parentNames": ["polukranos reborn // polukranos, engine of ruin"],
+    "parentPrintings": ["47f7d313-8333-41fe-8bfa-c96774dac228"],
+    "tokens": [
+      {
+        "uuid": "2bff78d9-7c4c-4b3b-a485-5328e985315b",
+        "alias": "Phyrexian Hydra — Reach",
+        "type_line": "Token Creature — Phyrexian Hydra"
+      },
+      {
+        "uuid": "a1bb0ec0-729e-4dcb-bab4-9f31c1056ab3",
+        "alias": "Phyrexian Hydra — Lifelink",
+        "type_line": "Token Creature — Phyrexian Hydra"
+      }
+    ]
+  },
+  "7cec9021-6f25-4fd8-b40e-adf4ffd3a7b8": {
+    "parentNames": ["garruk relentless // garruk, the veil-cursed"],
+    "parentPrintings": ["6897514f-e396-46d6-91e3-158366c741bb"],
+    "tokens": [
+      {
+        "uuid": "89b89a55-3ea2-4186-b946-06831bc16169",
+        "alias": "Wolf — 2/2",
+        "type_line": "Token Creature — Wolf"
+      },
+      {
+        "uuid": "f5561f57-34e2-4c01-8094-0ecb101c7fa1",
+        "alias": "Wolf — 1/1 Deathtouch",
+        "type_line": "Token Creature — Wolf"
+      }
+    ]
+  },
+  "72a39730-acc3-470c-960e-3a91c5eae4be": {
+    "parentNames": ["wurmcoil larva"],
+    "parentPrintings": ["cc9b30e0-3934-4e4c-bdd9-5b7696b45948"],
+    "tokens": [
+      {
+        "uuid": "1482ab42-875c-46fc-aa0b-b18154488985",
+        "alias": "Phyrexian Wurm — 2/1 Lifelink",
+        "type_line": "Token Artifact Creature — Phyrexian Wurm"
+      },
+      {
+        "uuid": "1a7800c9-6808-4f33-87ad-50ad8c79f2d7",
+        "alias": "Phyrexian Wurm — 1/2 Deathtouch",
+        "type_line": "Token Artifact Creature — Phyrexian Wurm"
+      }
+    ]
   }
 }
