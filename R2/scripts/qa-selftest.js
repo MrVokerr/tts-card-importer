@@ -15,6 +15,7 @@ import {
 import { mergeShardRecords, writeTokenCardRecords } from '../lib/write-shards.js';
 import { iterateBulkCards, JSON_ARRAY_RETIRE_DATE } from '../lib/fetch-bulk.js';
 import { parentNameShardKey, tokenShardKey } from '../lib/shard-keys.js';
+import { normalizeIndexName } from '../lib/normalize.js';
 import { unionUuidLists } from '../lib/image-routing.js';
 import {
   LOOKAHEAD_DAYS,
@@ -35,6 +36,12 @@ import {
   shouldSkipTokenImageCard,
   unionSetCodes,
 } from '../lib/token-image-discovery.js';
+import {
+  applyTokenLinkOverrides,
+  mergeTokenLinkOverrides,
+  normalizeAndValidateTokenLinkOverrides,
+  overrideToRelatedEntries,
+} from '../lib/token-link-overrides.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -345,6 +352,134 @@ async function main() {
   assert(
     /6\.6 cannot use R2 DFC/.test(dfcMsg) && /tfdc #8/.test(dfcMsg),
     'dfcNoKaiCanonicalMessage is actionable'
+  );
+
+  // --- token-link-overrides (Wurmcoil same-name variants) ---
+  const wurmcoilOracle = 'd1a60f44-7696-49ee-91fb-cab5b3102962';
+  const wurmLife = 'a6ee0db9-ac89-4ab6-ac2e-8a7527d9ecbd';
+  const wurmDeath = 'b68e816f-f9ac-435b-ad0b-ceedbe72447a';
+  const wurmcoilParent = '5d275f04-cc60-4e3f-95cc-3d02bc916b82';
+  const wurmcoilOverride = {
+    [wurmcoilOracle]: {
+      tokens: [
+        { uuid: wurmLife, alias: 'Wurm — Lifelink', type_line: 'Token Artifact Creature — Wurm' },
+        { uuid: wurmDeath, alias: 'Wurm — Deathtouch', type_line: 'Token Artifact Creature — Wurm' },
+      ],
+    },
+  };
+  const validatedOverride = normalizeAndValidateTokenLinkOverrides(wurmcoilOverride);
+  assert(
+    validatedOverride[wurmcoilOracle]?.tokens?.length === 2 &&
+      validatedOverride[wurmcoilOracle].tokens[0].uuid === wurmLife &&
+      validatedOverride[wurmcoilOracle].tokens[1].alias === 'Wurm — Deathtouch',
+    'Wurmcoil override validates with distinct aliases'
+  );
+
+  let overrideThrew = false;
+  try {
+    normalizeAndValidateTokenLinkOverrides({
+      [wurmcoilOracle]: {
+        tokens: [
+          { uuid: wurmLife, alias: 'Wurm — Lifelink' },
+          { uuid: wurmDeath, alias: 'Wurm — Lifelink' },
+        ],
+      },
+    });
+  } catch (err) {
+    overrideThrew = /duplicate alias/i.test(err.message);
+  }
+  assert(overrideThrew, 'tokenLinkOverrides fail-closed on duplicate aliases');
+
+  overrideThrew = false;
+  try {
+    normalizeAndValidateTokenLinkOverrides({ 'not-a-uuid': { tokens: [{ uuid: wurmLife, alias: 'A' }] } });
+  } catch (err) {
+    overrideThrew = /invalid parent oracle/i.test(err.message);
+  }
+  assert(overrideThrew, 'tokenLinkOverrides fail-closed on malformed parent oracle UUID');
+
+  const entries = overrideToRelatedEntries(validatedOverride[wurmcoilOracle], null);
+  assert(
+    entries.length === 2 &&
+      entries[0].name === 'Wurm — Lifelink' &&
+      entries[1].name === 'Wurm — Deathtouch' &&
+      normalizeIndexName(entries[0].name) !== normalizeIndexName(entries[1].name),
+    'override aliases stay distinct after normalize'
+  );
+
+  const oracleShards = {
+    [tokenShardKey(wurmcoilOracle)]: {
+      [wurmcoilOracle]: [{ uuid: wurmLife, name: 'Wurm' }],
+    },
+  };
+  const parentShards = {
+    [tokenShardKey(wurmcoilParent)]: {
+      [wurmcoilParent]: [{ uuid: wurmLife, name: 'Wurm' }],
+    },
+  };
+  const parentNameShards = {
+    [parentNameShardKey('wurmcoil engine')]: {
+      'wurmcoil engine': [{ uuid: wurmLife, name: 'Wurm' }],
+    },
+  };
+  const tokenRecordsMap = new Map([
+    [wurmLife, { name: 'Wurm', type_line: 'Token Artifact Creature — Wurm' }],
+    [wurmDeath, { name: 'Wurm', type_line: 'Token Artifact Creature — Wurm' }],
+  ]);
+  const observedParents = new Map([
+    [
+      wurmcoilOracle,
+      {
+        parentUuids: new Set([wurmcoilParent]),
+        parentNames: new Set(['wurmcoil engine']),
+      },
+    ],
+  ]);
+  const applyStats = applyTokenLinkOverrides({
+    overrides: wurmcoilOverride,
+    oracleShards,
+    parentShards,
+    parentNameShards,
+    observedParents,
+    tokenRecords: tokenRecordsMap,
+  });
+  assert(applyStats.applied === 1, 'applyTokenLinkOverrides applies Wurmcoil once');
+  const oracleList = oracleShards[tokenShardKey(wurmcoilOracle)][wurmcoilOracle];
+  const parentList = parentShards[tokenShardKey(wurmcoilParent)][wurmcoilParent];
+  const nameList = parentNameShards[parentNameShardKey('wurmcoil engine')]['wurmcoil engine'];
+  assert(
+    oracleList.length === 2 &&
+      parentList.length === 2 &&
+      nameList.length === 2 &&
+      oracleList.some((t) => t.uuid === wurmLife && t.name === 'Wurm — Lifelink') &&
+      oracleList.some((t) => t.uuid === wurmDeath && t.name === 'Wurm — Deathtouch') &&
+      parentList.some((t) => t.uuid === wurmDeath) &&
+      nameList.some((t) => t.uuid === wurmLife),
+    'Wurmcoil override replaces oracle/parent/name shards with both UUIDs'
+  );
+
+  overrideThrew = false;
+  try {
+    applyTokenLinkOverrides({
+      overrides: wurmcoilOverride,
+      oracleShards: {},
+      parentShards: {},
+      parentNameShards: {},
+      observedParents: new Map(),
+      tokenRecords: tokenRecordsMap,
+    });
+  } catch (err) {
+    overrideThrew = /missing parent oracle|no parent printings/i.test(err.message);
+  }
+  assert(overrideThrew, 'applyTokenLinkOverrides fail-closed when parent oracle missing from bulk');
+
+  const mergedOverrides = mergeTokenLinkOverrides(
+    { [wurmcoilOracle]: { tokens: [{ uuid: wurmLife, alias: 'Old' }] } },
+    wurmcoilOverride
+  );
+  assert(
+    mergedOverrides[wurmcoilOracle].tokens.length === 2,
+    'mergeTokenLinkOverrides later source wins'
   );
 
   fs.rmSync(out, { recursive: true, force: true });

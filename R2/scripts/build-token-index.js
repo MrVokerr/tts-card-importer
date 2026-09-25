@@ -22,6 +22,11 @@ import { countShardMapKeys } from '../lib/token-sync-guards.js';
 import { ensureBulkFile, iterateBulkCards } from '../lib/fetch-bulk.js';
 import { isTokenLike, partIsTokenOrEmblem } from '../lib/token-like.js';
 import { loadPreviousDefaults, unionUuidLists } from '../lib/image-routing.js';
+import {
+  applyTokenLinkOverrides,
+  resolveTokenLinkOverrides,
+  serializeTokenLinkOverrides,
+} from '../lib/token-link-overrides.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -35,6 +40,7 @@ function parseArgs(argv) {
     imageCdn: 'https://img.klrmngr.com',
     writeSyncState: true,
     previousDefaults: null,
+    tokenLinkOverrides: null,
   };
   for (const arg of argv) {
     if (arg === '--fetch') opts.fetch = true;
@@ -43,6 +49,7 @@ function parseArgs(argv) {
     else if (arg.startsWith('--base-url=')) opts.baseUrl = arg.split('=')[1];
     else if (arg.startsWith('--image-cdn=')) opts.imageCdn = arg.split('=')[1];
     else if (arg.startsWith('--previous-defaults=')) opts.previousDefaults = arg.split('=')[1];
+    else if (arg.startsWith('--token-link-overrides=')) opts.tokenLinkOverrides = arg.split('=')[1];
     else if (arg === '--no-sync-state') opts.writeSyncState = false;
   }
   if (!opts.fetch && !fs.existsSync(opts.input)) {
@@ -80,8 +87,34 @@ function addToShard(shards, shardKey, mapKey, entry, defaultsByName) {
   list.push(entry);
 }
 
+function trackOverrideParent(observedParents, oracleId, parentUuid, parentNorm) {
+  if (!oracleId) return;
+  let obs = observedParents.get(oracleId);
+  if (!obs) {
+    obs = { parentUuids: new Set(), parentNames: new Set() };
+    observedParents.set(oracleId, obs);
+  }
+  if (parentUuid) obs.parentUuids.add(parentUuid);
+  if (parentNorm) obs.parentNames.add(parentNorm);
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
+
+  // Load previous defaults early so tokenLinkOverrides are validated before bulk work.
+  const previousDefaultsRef =
+    opts.previousDefaults ||
+    `${String(opts.baseUrl).replace(/\/$/, '')}/index/token-cdn-defaults.json`;
+  const previousDefaults = await loadPreviousDefaults(previousDefaultsRef);
+  const tokenLinkOverrides = resolveTokenLinkOverrides(
+    previousDefaults,
+    opts.tokenLinkOverrides || undefined
+  );
+  const overrideOracleIds = new Set(Object.keys(tokenLinkOverrides));
+  if (overrideOracleIds.size > 0) {
+    console.log(`tokenLinkOverrides: ${overrideOracleIds.size} parent oracle(s) configured`);
+  }
+
   const { path: bulkPath, meta } = await ensureBulkFile({
     fetch: opts.fetch || !fs.existsSync(opts.input),
     input: opts.input,
@@ -92,6 +125,8 @@ async function main() {
   const parentNameShards = {};
   const defaultsByName = {};
   const tokenRecords = new Map();
+  /** @type {Map<string, { parentUuids: Set<string>, parentNames: Set<string> }>} */
+  const observedParents = new Map();
   let scanned = 0;
   let tokenLikeCount = 0;
 
@@ -107,6 +142,16 @@ async function main() {
       if (!tokenRecords.has(card.id)) {
         tokenRecords.set(card.id, scryfallToIndexRecord(card));
       }
+    }
+
+    const oracleId = card.oracle_id ? String(card.oracle_id).toLowerCase() : null;
+    if (oracleId && overrideOracleIds.has(oracleId)) {
+      trackOverrideParent(
+        observedParents,
+        oracleId,
+        card.id,
+        normalizeIndexName(card.name)
+      );
     }
 
     for (const part of card.all_parts || []) {
@@ -138,15 +183,33 @@ async function main() {
   if (scanned === 0) throw new Error('Bulk scan produced zero cards');
   if (tokenLikeCount === 0) throw new Error('No token-like cards found in bulk');
 
-  const previousDefaultsRef =
-    opts.previousDefaults ||
-    `${String(opts.baseUrl).replace(/\/$/, '')}/index/token-cdn-defaults.json`;
-  const previousDefaults = await loadPreviousDefaults(previousDefaultsRef);
+  if (overrideOracleIds.size > 0) {
+    const applyStats = applyTokenLinkOverrides({
+      overrides: tokenLinkOverrides,
+      oracleShards,
+      parentShards,
+      parentNameShards,
+      observedParents,
+      tokenRecords,
+    });
+    console.log(
+      `Applied tokenLinkOverrides: oracles=${applyStats.applied} ` +
+        `parentPrintings=${applyStats.parentPrintings} parentNames=${applyStats.parentNames}`
+    );
+  }
+
   const preservedKaiMiss = previousDefaults?.kaiMissUuids || [];
   const preservedR2Fallback = previousDefaults?.r2FallbackUuids || [];
   if (preservedKaiMiss.length || preservedR2Fallback.length) {
     console.log(
       `Preserving image routing lists: kaiMiss=${preservedKaiMiss.length} r2Fallback=${preservedR2Fallback.length}`
+    );
+  }
+
+  const preservedOverrides = serializeTokenLinkOverrides(tokenLinkOverrides);
+  if (Object.keys(preservedOverrides).length) {
+    console.log(
+      `Preserving tokenLinkOverrides: ${Object.keys(preservedOverrides).length} oracle(s)`
     );
   }
 
@@ -156,6 +219,7 @@ async function main() {
     r2ImageCdn: opts.baseUrl,
     r2FallbackUuids: unionUuidLists(preservedR2Fallback),
     kaiMissUuids: unionUuidLists(preservedKaiMiss),
+    tokenLinkOverrides: preservedOverrides,
     byName: defaultsByName,
   };
 
@@ -178,6 +242,7 @@ async function main() {
     oracleShardFileCount: Object.keys(oracleShards).length,
     nameShardFileCount: Object.keys(parentNameShards).length,
     tokenCardShardFileCount: shardKeys.length,
+    tokenLinkOverrideCount: Object.keys(preservedOverrides).length,
   };
 
   const syncState = {

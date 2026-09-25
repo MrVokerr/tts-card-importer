@@ -4,6 +4,7 @@
  */
 import { parentNameShardKey, tokenShardKey } from '../lib/shard-keys.js';
 import { normalizeIndexName } from '../lib/normalize.js';
+import { normalizeAndValidateTokenLinkOverrides } from '../lib/token-link-overrides.js';
 
 const DEFAULT_BASE = 'https://pub-6c935b50ab2c43f291df08b7f566585b.r2.dev';
 
@@ -23,6 +24,69 @@ async function fetchJson(url) {
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
+}
+
+function assertOverrideList(list, override, label) {
+  assert(Array.isArray(list) && list.length > 0, `${label}: empty related-token list`);
+  for (const t of override.tokens) {
+    const hit = list.find((e) => (e.uuid || e) === t.uuid);
+    assert(hit, `${label}: missing uuid ${t.uuid}`);
+    assert(
+      normalizeIndexName(hit.name || '') === normalizeIndexName(t.alias),
+      `${label}: uuid ${t.uuid} alias want '${t.alias}' got '${hit.name}'`
+    );
+  }
+  const aliasNorms = override.tokens.map((t) => normalizeIndexName(t.alias));
+  assert(new Set(aliasNorms).size === aliasNorms.length, `${label}: configured aliases not distinct`);
+}
+
+/**
+ * Verify every configured tokenLinkOverride against live oracle / name / parent shards.
+ */
+async function verifyTokenLinkOverrides(base, defaults) {
+  const overrides = normalizeAndValidateTokenLinkOverrides(defaults.tokenLinkOverrides || {});
+  const oracleIds = Object.keys(overrides);
+  if (oracleIds.length === 0) {
+    console.log('tokenLinkOverrides: none configured on live defaults');
+    return;
+  }
+
+  for (const oracleId of oracleIds) {
+    const override = overrides[oracleId];
+    const oracleShard = await fetchJson(
+      `${base}/index/tokens/shards/oracle/${tokenShardKey(oracleId)}.json`
+    );
+    assertOverrideList(oracleShard[oracleId] || [], override, `override ${oracleId} oracle`);
+
+    const parentNames = override.parentNames || [];
+    for (const parentNorm of parentNames) {
+      const nameShard = await fetchJson(
+        `${base}/index/tokens/parents-by-name/shards/${parentNameShardKey(parentNorm)}.json`
+      );
+      assertOverrideList(
+        nameShard[parentNorm] || [],
+        override,
+        `override ${oracleId} name '${parentNorm}'`
+      );
+    }
+
+    const parentPrintings = override.parentPrintings || [];
+    for (const parentUuid of parentPrintings) {
+      const parentShard = await fetchJson(
+        `${base}/index/tokens/shards/parent/${tokenShardKey(parentUuid)}.json`
+      );
+      assertOverrideList(
+        parentShard[parentUuid] || [],
+        override,
+        `override ${oracleId} parent ${parentUuid}`
+      );
+    }
+
+    console.log(
+      `tokenLinkOverrides OK: ${oracleId} tokens=${override.tokens.length}` +
+        ` names=${parentNames.length} printings=${parentPrintings.length}`
+    );
+  }
 }
 
 async function main() {
@@ -147,6 +211,8 @@ async function main() {
   if (missSet.has(axeId)) {
     console.log('Token image canary: Axe included in routing list');
   }
+
+  await verifyTokenLinkOverrides(base, defaults);
 
   console.log('OK — shard keys and sample records match live CDN');
 }

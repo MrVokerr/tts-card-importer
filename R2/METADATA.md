@@ -126,6 +126,22 @@ See [schema/card-record.schema.json](schema/card-record.schema.json) and [schema
 - `r2ImageCdn` — fallback image base (`/cards/{uuid}.jpg`)
 - `byName` — map normalized token name → default UUID
 - `r2FallbackUuids`, `kaiMissUuids` — per-UUID image routing overrides (populated by `npm run cache:token-images`; preserved across daily token metadata rebuilds)
+- `tokenLinkOverrides` — optional map of **parent oracle UUID → multi-token list** for same-named related tokens (e.g. Wurmcoil Engine’s two `Wurm` tokens). Each entry uses a distinct `alias` as the related-token `name` so Card Importer 6.6’s name dedupe keeps every variant; hydrated card records still use the real token name. Optional `parentNames` / `parentPrintings` are verify canaries. Loaded from previous R2 defaults and merged with [`config/token-link-overrides.json`](config/token-link-overrides.json); rewritten into regenerated defaults on every token metadata build.
+
+Example:
+
+```json
+{
+  "d1a60f44-7696-49ee-91fb-cab5b3102962": {
+    "parentNames": ["wurmcoil engine"],
+    "parentPrintings": ["5d275f04-cc60-4e3f-95cc-3d02bc916b82"],
+    "tokens": [
+      { "uuid": "a6ee0db9-ac89-4ab6-ac2e-8a7527d9ecbd", "alias": "Wurm — Lifelink" },
+      { "uuid": "b68e816f-f9ac-435b-ad0b-ceedbe72447a", "alias": "Wurm — Deathtouch" }
+    ]
+  }
+}
+```
 
 Token image fallbacks: Scryfall `large.jpg` → R2 `/cards/{uuid}.jpg` with long Cache-Control. See [MIRROR.md](MIRROR.md#token-image-fallbacks-cardsuuidjpg).
 

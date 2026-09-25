@@ -1,0 +1,18 @@
+{
+  "d1a60f44-7696-49ee-91fb-cab5b3102962": {
+    "parentNames": ["wurmcoil engine"],
+    "parentPrintings": ["5d275f04-cc60-4e3f-95cc-3d02bc916b82"],
+    "tokens": [
+      {
+        "uuid": "a6ee0db9-ac89-4ab6-ac2e-8a7527d9ecbd",
+        "alias": "Wurm — Lifelink",
+        "type_line": "Token Artifact Creature — Wurm"
+      },
+      {
+        "uuid": "b68e816f-f9ac-435b-ad0b-ceedbe72447a",
+        "alias": "Wurm — Deathtouch",
+        "type_line": "Token Artifact Creature — Wurm"
+      }
+    ]
+  }
+}

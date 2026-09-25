@@ -46,6 +46,7 @@ Daily **R2 token sync** auto-discovers non-digital Scryfall **token** sets relea
 - Merged `token-cdn-defaults.json` is published only after every eligible image succeeds (no half-published routing).
 - Double-faced tokens are **not** R2-fallbackable in Card Importer 6.6 — the job verifies a Kai-backed two-sided canonical printing exists and fails with an actionable message otherwise.
 - Existing `kaiMissUuids` / `r2FallbackUuids` are preserved across rebuilds via `unionUuidLists`.
+- Existing `tokenLinkOverrides` are preserved across rebuilds and merged with `config/token-link-overrides.json` (seed wins on the same parent oracle).
 
 ```bash
 # Auto-discovery only
