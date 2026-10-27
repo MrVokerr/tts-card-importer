@@ -34,6 +34,9 @@ on:
         default: ''
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   sync-tokens:
     runs-on: ubuntu-latest
@@ -44,10 +47,9 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
           cache: npm
@@ -64,9 +66,10 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+          INPUT_FORCE: ${{ github.event.inputs.force }}
         run: |
           EXTRA=""
-          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+          if [ "$INPUT_FORCE" = "true" ]; then
             EXTRA="--force"
           fi
           node scripts/sync-tokens.js $EXTRA
@@ -86,14 +89,20 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+          INPUT_FORCE: ${{ github.event.inputs.force }}
+          INPUT_SETS: ${{ github.event.inputs.image_sets }}
         run: |
           # Auto-discover token sets in window; image_sets are optional extras (not a hard-coded default).
-          SETS="${{ github.event.inputs.image_sets }}"
+          # Inputs arrive through env (not pasted into the script) and set codes must be letters/digits.
+          SETS="$INPUT_SETS"
+          if [ -n "$SETS" ] && ! printf '%s' "$SETS" | grep -Eq '^[A-Za-z0-9]+(,[A-Za-z0-9]+)*$'; then
+            echo "::error::image_sets must be comma-separated set codes"; exit 1
+          fi
           EXTRA=""
           if [ -n "$SETS" ]; then
             EXTRA="--sets=$SETS"
           fi
-          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+          if [ "$INPUT_FORCE" = "true" ]; then
             EXTRA="$EXTRA --force"
           fi
           node scripts/cache-token-images.js $EXTRA
